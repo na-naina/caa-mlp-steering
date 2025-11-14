@@ -1,0 +1,36 @@
+model:
+  name: google/gemma-2-2b
+  family: gemma2
+  layer: 12
+  dtype: bfloat16
+
+slurm:
+  gpus: 1
+  cpus: 8
+  mem_gb: 64
+  time: "00:30:00"
+
+truthfulqa:
+  split:
+    steering_pool: 20  # Small pool for smoke test
+    train: 30
+    val: 20
+    test: 20
+
+steering:
+  vector_bank:
+    num_vectors: 6  # Reduced for smoke test
+    min_samples: 10
+    max_samples: 20
+
+mlp:
+  mc_training:
+    epochs: 1  # Quick test
+    steps_per_epoch: 5
+  gen_training:
+    epochs: 1
+    steps_per_epoch: 5
+
+evaluation:
+  judge:
+    model: google/gemma-3-12b-it  # Use Gemma-3-12b as judge for testing

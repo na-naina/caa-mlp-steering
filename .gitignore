@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Project specific
+outputs/
+logs/
+cache/
+*.pyc
+*.pyo
+
+# HuggingFace cache
+hf_cache/
+.cache/
+
+# SLURM
+slurm-*.out
+*.err
+*.out
+
+# Temporary files
+*.tmp
+.DS_Store
+
+# Model weights and results
+*.pt
+*.pth
+*.bin
+*.safetensors
+analysis_results/
+legacy/local_results/

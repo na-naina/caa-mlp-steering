@@ -1,0 +1,32 @@
+model:
+  name: google/gemma-3-12b-pt
+  family: gemma3
+  layer: 24
+  dtype: bfloat16
+  device_map: auto  # Spread across both GPUs for training
+  max_memory: {0: "40GiB", 1: "40GiB"}  # Reserve memory for gradients
+
+slurm:
+  gpus: 2  # 2 GPUs for model, judge loads after model is freed
+  cpus: 12
+  mem_gb: 128
+  time: "05:00:00"
+
+# Use full dataset from base.yaml:
+# steering_pool: 100, train: 250, val: 117, test: 200
+
+# Reduce batch sizes for MLP training to avoid OOM
+training:
+  gen_mlp:
+    batch_size: 2  # Reduced from 4
+    epochs: 2
+    steps_per_epoch: 40
+  mc_mlp:
+    batch_size: 4  # Reduced from 8
+    epochs: 2
+    steps_per_epoch: 50
+
+evaluation:
+  judge:
+    model: google/gemma-3-12b-it
+    device_map: auto  # Judge loads after main model is freed

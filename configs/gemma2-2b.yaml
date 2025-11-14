@@ -1,0 +1,14 @@
+model:
+  name: google/gemma-2-2b
+  family: gemma2
+  layer: 12
+  dtype: bfloat16
+slurm:
+  gpus: 1
+  cpus: 8
+  mem_gb: 64
+  time: "06:00:00"
+
+mlp:
+  steps_per_epoch: 16
+  samples_per_step: 6

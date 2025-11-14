@@ -1,0 +1,20 @@
+model:
+  name: google/gemma-3-270m
+  family: gemma3
+  layer: 8
+  dtype: bfloat16
+  device_map: auto
+
+data:
+  dataset: truthful_qa
+  steering_pool: 10
+  train: 15
+  val: 5
+  test: 5
+
+paths:
+  cache_dir: cache
+  data_dir: data
+  output_dir: outputs
+
+# No judge config - we'll kill before eval anyway

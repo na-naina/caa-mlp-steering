@@ -1,0 +1,36 @@
+model:
+  name: google/gemma-3-270m
+  family: gemma3
+  layer: 6  # Middle layer for small model
+  dtype: bfloat16
+
+paths:
+  hf_cache: cache/transformers  # Local cache
+
+truthfulqa:
+  split:
+    steering_pool: 10  # Minimal for quick test
+    train: 15
+    val: 5
+    test: 5
+
+steering:
+  max_length: 256  # Shorter for speed
+  batch_size: 4
+  scales: [1.0]
+  use_mlp: true
+  vector_bank:
+    num_vectors: 3  # Minimal
+    min_samples: 5
+    max_samples: 8
+
+mlp:
+  mc_training:
+    epochs: 1
+    steps_per_epoch: 2  # Just test it runs
+  gen_training:
+    epochs: 1
+    steps_per_epoch: 2
+
+evaluation:
+  skip: true  # Skip judge for now, just test pipeline

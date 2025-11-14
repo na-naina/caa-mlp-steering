@@ -1,0 +1,110 @@
+graph TB
+    subgraph data_prep["📊 Data Preparation"]
+        direction TB
+        tqa_raw["TruthfulQA Dataset<br/>(817 examples)"]
+        split["Split into 4 sets"]
+        tqa_split["steering: 100<br/>train: 250<br/>val: 117<br/>test: 200"]
+
+        tqa_raw --> split
+        split --> tqa_split
+    end
+
+    subgraph caa_extract["🧠 CAA Vector Extraction"]
+        direction TB
+        caa_input["INPUT:<br/>• Steering data (100 samples)<br/>• Model at layer L"]
+        caa_process["PROCESS:<br/>1. Forward pass with correct answer → h⁺ ∈ ℝᵈ<br/>2. Forward pass with incorrect answer → h⁻ ∈ ℝᵈ<br/>3. Compute: v = h⁺ - h⁻ ∈ ℝᵈ"]
+        caa_output["OUTPUT:<br/>CAA vectors {v₁, v₂, ..., v₁₀₀} ∈ ℝᵈ"]
+
+        caa_input --> caa_process
+        caa_process --> caa_output
+    end
+
+    subgraph vector_bank["🗄️ Vector Bank Creation"]
+        direction TB
+        vb_input["INPUT:<br/>CAA vectors {v₁, ..., v₁₀₀}"]
+        vb_process["PROCESS:<br/>Sample random combinations:<br/>vₜ = Σᵢ αᵢvᵢ where Σαᵢ = 1"]
+        vb_output["OUTPUT:<br/>Vector bank {v₁, ..., vₜ} ∈ ℝᵈ<br/>(T = 1000 vectors)"]
+
+        vb_input --> vb_process
+        vb_process --> vb_output
+    end
+
+    subgraph mlp_mc_training["🎯 MC MLP Training"]
+        direction TB
+        mlp_mc_input["INPUT:<br/>• Vector bank {v₁, ..., vₜ}<br/>• Train data (250 samples)<br/>• Val data (117 samples)"]
+
+        mlp_mc_arch["MC MLP Architecture:<br/>d → 2d → d"]
+
+        mlp_mc_forward["For each MC sample:<br/>1. Sample vector vₜ<br/>2. Transform: v'ₜ = MLP_MC(vₜ) ∈ ℝᵈ<br/>3. Apply steering at layer L<br/>4. Get logits for answer choices"]
+
+        loss_mc["MC Loss:<br/>ℒ_MC = max(0, margin - logit(correct) + logit(incorrect))<br/>(hinge loss, skipped if not MC format)<br/>Optimize via Adam"]
+
+        mlp_mc_output["OUTPUT:<br/>Trained MLP_MC: ℝᵈ → ℝᵈ"]
+
+        mlp_mc_input --> mlp_mc_arch
+        mlp_mc_arch --> mlp_mc_forward
+        mlp_mc_forward --> loss_mc
+        loss_mc --> mlp_mc_output
+    end
+
+    subgraph mlp_gen_training["🎯 Generation MLP Training"]
+        direction TB
+        mlp_gen_input["INPUT:<br/>• Vector bank {v₁, ..., vₜ}<br/>• Train data (250 samples)<br/>• Val data (117 samples)"]
+
+        mlp_gen_arch["Generation MLP Architecture:<br/>d → 2d → d"]
+
+        mlp_gen_forward["For each training sample:<br/>1. Sample vector vₜ<br/>2. Transform: v'ₜ = MLP_Gen(vₜ) ∈ ℝᵈ<br/>3. Apply steering at layer L<br/>4. Generate answer tokens"]
+
+        loss_gen["Generation Loss:<br/>ℒ_gen = -log P(y* | Q, v'ₜ)<br/>(teacher forcing with gold answer y*)<br/>Optimize via Adam"]
+
+        mlp_gen_output["OUTPUT:<br/>Trained MLP_Gen: ℝᵈ → ℝᵈ"]
+
+        mlp_gen_input --> mlp_gen_arch
+        mlp_gen_arch --> mlp_gen_forward
+        mlp_gen_forward --> loss_gen
+        loss_gen --> mlp_gen_output
+    end
+
+    subgraph inference["🔮 Inference"]
+        direction TB
+        inf_input["INPUT:<br/>• Test data (200 samples)<br/>• Trained MLP_Gen<br/>• Vector bank"]
+        inf_process["For each test sample:<br/>1. Sample steering vector vₜ<br/>2. Transform: v'ₜ = MLP_Gen(vₜ)<br/>3. Apply steering at layer L<br/>4. Generate answer (greedy decode)"]
+        inf_output["OUTPUT:<br/>Generated answers {ŷ₁, ..., ŷ₂₀₀}"]
+
+        inf_input --> inf_process
+        inf_process --> inf_output
+    end
+
+    subgraph evaluation["📈 Evaluation"]
+        direction TB
+        eval_input["INPUT:<br/>• Generated answers {ŷ}<br/>• Gold answers {y*}<br/>• Judge model"]
+
+        eval_judge["Judge Model Scoring:<br/>For each (ŷ, y*):<br/>score ∈ {0, 1}"]
+
+        eval_metrics["Metrics:<br/>• Accuracy = (1/N)Σᵢ score(ŷᵢ, y*ᵢ)<br/>• Per-category accuracy"]
+
+        eval_output["OUTPUT:<br/>Test accuracy, metrics, analysis"]
+
+        eval_input --> eval_judge
+        eval_judge --> eval_metrics
+        eval_metrics --> eval_output
+    end
+
+    %% Main flow connections
+    tqa_split --> caa_input
+    caa_output --> vb_input
+    vb_output --> mlp_mc_input
+    vb_output --> mlp_gen_input
+    mlp_gen_output --> inf_input
+    inf_output --> eval_input
+
+    %% Styling
+    classDef inputStyle fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+    classDef processStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef outputStyle fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    classDef lossStyle fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+
+    class caa_input,mlp_mc_input,mlp_gen_input,inf_input,eval_input,vb_input inputStyle
+    class caa_process,mlp_mc_forward,mlp_gen_forward,inf_process,eval_judge,vb_process processStyle
+    class caa_output,mlp_mc_output,mlp_gen_output,inf_output,eval_output,vb_output outputStyle
+    class loss_mc,loss_gen lossStyle

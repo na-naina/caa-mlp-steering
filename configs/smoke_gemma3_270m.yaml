@@ -1,0 +1,28 @@
+model:
+  name: google/gemma-3-270m
+  family: gemma3
+  layer: 8
+  dtype: bfloat16
+  device_map: cuda:0  # Main model on GPU 0, judge on GPU 1
+
+slurm:
+  gpus: 2  # 1 GPU for 270m model + 1 for judge
+  cpus: 8
+  mem_gb: 64
+  time: "00:30:00"
+
+# Smoke test: smaller splits
+data:
+  steering_pool: 20
+  train: 30
+  val: 20
+  test: 20
+
+mlp:
+  steps_per_epoch: 10
+  samples_per_step: 5
+
+evaluation:
+  judge:
+    model: google/gemma-3-12b-it
+    device_map: cuda:1  # Judge on second GPU

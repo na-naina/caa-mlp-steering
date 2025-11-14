@@ -1,0 +1,14 @@
+model:
+  name: google/gemma-3-1b-pt  # Using base/pretrained to match Gemma-2
+  family: gemma3
+  layer: 12  # Changed from 9 to match Gemma-2 relative depth
+  dtype: bfloat16
+slurm:
+  gpus: 1
+  cpus: 8
+  mem_gb: 48
+  time: "06:00:00"
+
+mlp:
+  steps_per_epoch: 20
+  samples_per_step: 10

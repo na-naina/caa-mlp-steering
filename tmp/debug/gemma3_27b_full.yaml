@@ -1,0 +1,24 @@
+model:
+  name: google/gemma-3-27b-pt
+  family: gemma3
+  layer: 26
+  dtype: bfloat16
+  device_map: auto
+  max_memory:
+    0: "40GiB"  # Main model uses GPUs 0 and 1
+    1: "40GiB"
+    2: "0GiB"   # Reserve GPU 2 for judge
+
+slurm:
+  gpus: 3  # 2 GPUs for 27b model + 1 for judge
+  cpus: 16
+  mem_gb: 180
+  time: "24:00:00"
+
+# Use full dataset from base.yaml:
+# steering_pool: 100, train: 250, val: 117, test: 200
+
+evaluation:
+  judge:
+    model: google/gemma-3-12b-it
+    device_map: cuda:2  # Judge on third GPU (model uses cuda:0,1)

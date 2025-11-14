@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
+from typing import Optional
+
+import torch
+
+
+def _get_decoder_layer(model, layer_index: int):
+    # Standard text-only architecture (Gemma, Gemma2, Gemma3ForCausalLM, etc.)
+    if hasattr(model, "model") and hasattr(model.model, "layers"):
+        layers = model.model.layers
+    # Multimodal architecture (Gemma3ForConditionalGeneration - 12B+)
+    # Has model.model.language_model.layers structure
+    elif hasattr(model, "model") and hasattr(model.model, "language_model"):
+        if hasattr(model.model.language_model, "layers"):
+            layers = model.model.language_model.layers
+        else:
+            raise ValueError("Unsupported model architecture for steering")
+    # GPT-style architecture
+    elif hasattr(model, "transformer") and hasattr(model.transformer, "h"):
+        layers = model.transformer.h
+    else:
+        raise ValueError("Unsupported model architecture for steering")
+
+    if layer_index < 0 or layer_index >= len(layers):
+        raise IndexError(f"Layer index {layer_index} out of bounds ({len(layers)} layers)")
+    return layers[layer_index]
+
+
+@contextmanager
+def steering_hook(
+    model,
+    layer_index: int,
+    steering_vector: Optional[torch.Tensor],
+    scale: float = 1.0,
+):
+    """Context manager that applies steering vector to the residual stream."""
+
+    if steering_vector is None:
+        yield None
+        return
+
+    layer = _get_decoder_layer(model, layer_index)
+    vector = steering_vector
+
+    def hook(_module, _input, output):
+        hidden = output[0] if isinstance(output, tuple) else output
+        steer = scale * vector.to(hidden.device)
+        steer = steer.unsqueeze(0).unsqueeze(0)  # broadcast over batch and seq
+        hidden = hidden + steer
+        if isinstance(output, tuple):
+            return (hidden,) + output[1:]
+        return hidden
+
+    handle = layer.register_forward_hook(hook)
+    try:
+        yield handle
+    finally:
+        handle.remove()
+

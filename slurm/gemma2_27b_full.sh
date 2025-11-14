@@ -1,0 +1,32 @@
+#!/bin/bash
+#SBATCH --job-name=gemma2_27b_full
+#SBATCH --partition=gpu
+#SBATCH --time=24:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=180G
+#SBATCH --gres=gpu:lovelace_l40:3
+#SBATCH --output=logs/gemma2_27b_full_%j.out
+#SBATCH --error=logs/gemma2_27b_full_%j.err
+
+set -euo pipefail
+
+# Module loading and environment setup
+module purge
+module load Python/3.10.4-GCCcore-11.3.0
+module load CUDA/12.1.1
+
+source /springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/venv/bin/activate
+
+export PYTHONUNBUFFERED=1
+export TOKENIZERS_PARALLELISM=false
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+export PYTHONPATH=/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma
+export HF_HOME=/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/cache/transformers
+
+# Restrict main model to GPUs 0,1 only (judge will use GPU 2)
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+
+cd /springbrook/share/dcsresearch/u5584851/experiments/caa_gemma
+
+# Main model sees GPUs 0,1; judge loads separately on GPU 2
+python -m src.jobs.run_experiment --base-config configs/base.yaml --config configs/gemma2_27b_full.yaml --run-id gemma2_27b_full_$(date +%Y%m%d_%H%M%S)

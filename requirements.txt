@@ -1,0 +1,33 @@
+# Core dependencies for CAA experiments
+torch>=2.1.0
+transformers>=4.50.0  # Required for Gemma-3 models
+datasets>=2.14.0
+accelerate>=0.25.0
+pyyaml>=6.0.0
+
+# Data processing and analysis
+numpy>=1.24.0
+pandas>=2.1.0
+scipy>=1.11.0
+tqdm>=4.66.0
+
+# Tokenization
+sentencepiece>=0.1.99
+protobuf>=4.24.0
+
+# HuggingFace utilities
+huggingface_hub>=0.19.0
+
+# Optional: for large model handling
+bitsandbytes>=0.41.0
+
+# Visualization (for analysis)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Markdown tables for reports
+tabulate>=0.9.0
+sentence-transformers>=3.0.0
+
+# Evaluation metrics
+bleurt @ git+https://github.com/google-research/bleurt.git

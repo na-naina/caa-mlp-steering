@@ -1,0 +1,111 @@
+run:
+  id: null
+  seed: 42
+
+paths:
+  output_root: outputs
+  cache_root: cache
+  hf_cache: /springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/cache/transformers
+  shared_env_script: /springbrook/share/dcsresearch/u5584851/caa_gemma/setup_env.sh
+
+model:
+  name: google/gemma-2-2b
+  layer: 12
+  dtype: bfloat16
+  device: auto
+  device_map: auto
+  revision: null
+
+steering:
+  max_length: 512
+  batch_size: 8
+  scales: [1.0]
+  use_mlp: true
+  vector_bank:
+    num_vectors: 12
+    min_samples: 30
+    max_samples: 50
+
+mlp:
+  architecture:
+    hidden_multiplier: 2.0
+    dropout: 0.1
+  mc_training:
+    epochs: 2
+    steps_per_epoch: 50
+    batch_size: 8
+    margin: 1.0
+    lr: 1.0e-4
+    weight_decay: 0.0
+    grad_clip: 1.0
+  gen_training:
+    epochs: 2
+    steps_per_epoch: 40
+    batch_size: 4
+    lr: 1.0e-4
+    weight_decay: 0.0
+    grad_clip: 1.0
+
+truthfulqa:
+  dataset_name: truthful_qa
+  dataset_config: generation
+  cache_dir: cache/datasets
+  split:
+    steering_pool: 100
+    train: 250
+    val: 117
+    test: 200
+
+evaluation:
+  # Generation parameters
+  preset: qa  # TruthfulQA preset: 'qa', 'help', 'null', 'chat', 'long', 'harm'
+  max_new_tokens: 64  # Reduced from 80 to curb verbosity
+  temperature: 0.3  # Reduced from 0.7 for more focused answers
+  top_p: 0.9
+  top_k: 50
+  stop_sequences: ["\n\n", "\nQuestion:"]  # Stop at double newline or next question
+
+  # Truthfulness judge
+  judge:
+    mode: zero_shot  # 'zero_shot' or 'finetuned'
+    model: google/gemma-3-12b-it  # For zero-shot mode
+    max_new_tokens: 128  # With JSON failsafe repair logic
+    dtype: bfloat16
+    device_map: cuda:1  # Explicit GPU placement
+    # Fine-tuned model settings (used when mode=finetuned)
+    finetuned_model: null  # Path to fine-tuned model
+    threshold: 0.5  # Threshold for P(yes) in fine-tuned mode
+
+  # Informativeness judge
+  informativeness:
+    enabled: true
+    mode: zero_shot  # 'zero_shot' or 'finetuned'
+    model: google/gemma-3-12b-it  # Can share with truthfulness judge
+    max_new_tokens: 128
+    dtype: bfloat16
+    device_map: cuda:1
+    # Fine-tuned model settings (used when mode=finetuned)
+    finetuned_model: null  # Path to fine-tuned model
+    threshold: 0.5
+
+  # Semantic similarity with false reference comparison
+  semantic:
+    enabled: true
+    model: sentence-transformers/all-MiniLM-L6-v2
+    similarity_threshold: 0.6
+    use_false_refs: true  # Enable TruthfulQA-style diff scoring
+
+  # BLEURT learned metric
+  bleurt:
+    enabled: false  # Set to true to enable (requires installation)
+    checkpoint: bleurt-base-128  # or 'bleurt-large-512'
+    cache_dir: cache/bleurt
+
+slurm:
+  partition: gpu
+  gpus: 1
+  cpus: 10
+  mem_gb: 80
+  time: "12:00:00"
+  qos: null
+  account: null

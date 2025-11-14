@@ -1,0 +1,14 @@
+model:
+  name: google/gemma-3-9b
+  family: gemma3
+  layer: 21
+  dtype: bfloat16
+slurm:
+  gpus: 1
+  cpus: 12
+  mem_gb: 160
+  time: "18:00:00"
+
+mlp:
+  steps_per_epoch: 20
+  samples_per_step: 6

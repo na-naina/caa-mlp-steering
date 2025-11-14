@@ -1,0 +1,14 @@
+model:
+  name: google/gemma-3-270m
+  family: gemma3
+  layer: 8
+  dtype: bfloat16
+  device_map: auto
+
+data:
+  steering_pool: 10
+  train: 15
+  val: 5
+  test: 5
+
+# Skip eval by not specifying judge - we'll kill before eval anyway
