@@ -37,8 +37,16 @@ def load_all_results(base_dir: Path) -> list:
     """Load results from all model runs."""
     results = []
 
+    # Skip -it variants if we have PT version for same model size
+    skip_patterns = ['_it_2025']  # Skip IT variants from 2025 runs
+
     for run_dir in base_dir.iterdir():
         if not run_dir.is_dir():
+            continue
+
+        # Skip IT variants
+        if any(pattern in run_dir.name for pattern in skip_patterns):
+            print(f"⚠️  Skipping {run_dir.name}: IT variant (using PT only)")
             continue
 
         model_info = parse_model_name(run_dir.name)
@@ -460,9 +468,9 @@ def generate_comparison_report(results: list, output_dir: Path):
 
 
 def main():
-    base_dir = Path("analysis_results")
-    output_dir = Path("analysis_results/cross_model_comparison")
-    output_dir.mkdir(exist_ok=True)
+    base_dir = Path("outputs")
+    output_dir = Path("outputs/cross_model_comparison")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 80)
     print("CROSS-MODEL COMPARISON ANALYSIS")

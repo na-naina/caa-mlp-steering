@@ -248,7 +248,9 @@ def evaluate_generation(
     stats = _summarize_generation(
         annotated,
         judge is not None,
+        False,  # informativeness_used (not passed to evaluate_generation)
         semantic_judge is not None,
+        False,  # bleurt_used (not passed to evaluate_generation)
     )
     return {"stats": stats, "details": annotated}
 
@@ -267,23 +269,107 @@ def _detect_gemma3(model) -> bool:
 def _summarize_generation(
     results: Iterable[Dict],
     judged: bool,
+    informativeness_used: bool,
     semantic_used: bool,
+    bleurt_used: bool,
 ) -> GenerationStats:
-    if not results:
-        return GenerationStats(accuracy=None, semantic_mean=None, total=0)
+    results_list = list(results)
+    if not results_list:
+        return GenerationStats(
+            accuracy=None,
+            informativeness_mean=None,
+            semantic_mean=None,
+            semantic_diff_mean=None,
+            semantic_acc=None,
+            bleurt_mean=None,
+            bleurt_diff_mean=None,
+            bleurt_acc=None,
+            total=0,
+        )
 
+    # Truthfulness accuracy
     accuracy = None
     if judged:
-        accuracy = float(np.mean([r.get("match", 0) for r in results]))
+        # Support both zero-shot (match) and fine-tuned (finetuned_truth_score) judges
+        matches = [r.get("match", r.get("finetuned_truth_score", 0)) for r in results_list]
+        accuracy = float(np.mean(matches))
 
+    # Informativeness mean
+    informativeness_mean = None
+    if informativeness_used:
+        # Support both zero-shot (informative) and fine-tuned (finetuned_info_score)
+        informative_scores = [
+            r.get("informative", r.get("finetuned_info_score", 0))
+            for r in results_list
+        ]
+        informativeness_mean = float(np.mean(informative_scores))
+
+    # Semantic metrics
     semantic_mean = None
+    semantic_diff_mean = None
+    semantic_acc = None
     if semantic_used:
-        semantic_scores = [r.get("semantic_score") for r in results if r.get("semantic_score") is not None]
+        semantic_scores = [
+            r.get("semantic_score")
+            for r in results_list
+            if r.get("semantic_score") is not None
+        ]
         if semantic_scores:
             semantic_mean = float(np.mean(semantic_scores))
 
+        semantic_diffs = [
+            r.get("semantic_diff")
+            for r in results_list
+            if r.get("semantic_diff") is not None
+        ]
+        if semantic_diffs:
+            semantic_diff_mean = float(np.mean(semantic_diffs))
+
+        semantic_accs = [
+            r.get("semantic_acc")
+            for r in results_list
+            if r.get("semantic_acc") is not None
+        ]
+        if semantic_accs:
+            semantic_acc = float(np.mean(semantic_accs))
+
+    # BLEURT metrics
+    bleurt_mean = None
+    bleurt_diff_mean = None
+    bleurt_acc = None
+    if bleurt_used:
+        bleurt_scores = [
+            r.get("bleurt_max")
+            for r in results_list
+            if r.get("bleurt_max") is not None
+        ]
+        if bleurt_scores:
+            bleurt_mean = float(np.mean(bleurt_scores))
+
+        bleurt_diffs = [
+            r.get("bleurt_diff")
+            for r in results_list
+            if r.get("bleurt_diff") is not None
+        ]
+        if bleurt_diffs:
+            bleurt_diff_mean = float(np.mean(bleurt_diffs))
+
+        bleurt_accs = [
+            r.get("bleurt_acc")
+            for r in results_list
+            if r.get("bleurt_acc") is not None
+        ]
+        if bleurt_accs:
+            bleurt_acc = float(np.mean(bleurt_accs))
+
     return GenerationStats(
         accuracy=accuracy,
+        informativeness_mean=informativeness_mean,
         semantic_mean=semantic_mean,
-        total=len(results),
+        semantic_diff_mean=semantic_diff_mean,
+        semantic_acc=semantic_acc,
+        bleurt_mean=bleurt_mean,
+        bleurt_diff_mean=bleurt_diff_mean,
+        bleurt_acc=bleurt_acc,
+        total=len(results_list),
     )
