@@ -1,15 +1,15 @@
 model:
-  name: google/gemma-3-1b-pt
+  name: google/gemma-3-270m
   family: gemma3
-  layer: 12
+  layer: 8
   dtype: bfloat16
-  device_map: cuda:0  # Restrict main model to GPU 0, leave GPU 1 for judge
+  device_map: cuda:0  # Small model fits on single GPU
 
 slurm:
   gpus: 2  # Main model + judge
   cpus: 8
-  mem_gb: 64
-  time: "12:00:00"
+  mem_gb: 48
+  time: "08:00:00"
 
 steering:
   enabled_variants: [baseline, steered, mlp_gen]  # Skip mlp_mc (ineffective)

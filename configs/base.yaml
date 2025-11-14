@@ -3,7 +3,7 @@ run:
   seed: 42
 
 paths:
-  output_root: outputs
+  output_root: analysis_results
   cache_root: cache
   hf_cache: /springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/cache/transformers
   shared_env_script: /springbrook/share/dcsresearch/u5584851/caa_gemma/setup_env.sh
@@ -20,6 +20,7 @@ steering:
   max_length: 512
   batch_size: 8
   scales: [1.0]
+  # enabled_variants: [baseline, steered, mlp_gen]  # Optional: control which variants to evaluate (default: all available)
   use_mlp: true
   vector_bank:
     num_vectors: 12

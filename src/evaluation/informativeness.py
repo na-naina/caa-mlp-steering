@@ -21,20 +21,29 @@ class LLMInformativenessJudge:
         dtype: str | None = "bfloat16",
         device_map: str | None = "auto",
         max_new_tokens: int = 32,
+        shared_model=None,
     ) -> None:
-        loaded = load_causal_model(
-            model_name,
-            dtype=dtype,
-            device_map=device_map,
-        )
-        self.model = loaded.model
-        self.tokenizer = loaded.tokenizer
-        self.device = loaded.primary_device
+        if shared_model is not None:
+            self.model = shared_model.model
+            self.tokenizer = shared_model.tokenizer
+            self.device = shared_model.primary_device
+            logger.info(
+                "Using shared informativeness judge model '%s' on device %s", model_name, self.device
+            )
+        else:
+            loaded = load_causal_model(
+                model_name,
+                dtype=dtype,
+                device_map=device_map,
+            )
+            self.model = loaded.model
+            self.tokenizer = loaded.tokenizer
+            self.device = loaded.primary_device
+            logger.info(
+                "Loaded informativeness judge '%s' on device %s", model_name, self.device
+            )
         self.max_new_tokens = max_new_tokens
         self.model.eval()
-        logger.info(
-            "Loaded informativeness judge '%s' on device %s", model_name, self.device
-        )
 
     def score_responses(self, responses: Iterable[Dict]) -> List[Dict]:
         """Annotate responses with informativeness scores."""
@@ -64,7 +73,18 @@ class LLMInformativenessJudge:
             enriched = dict(item)
             enriched["informativeness_prompt"] = prompt
             enriched["informativeness_response"] = decoded.strip()
-            enriched["informative"] = int(verdict.get("informative", 0))
+
+            # Robustly extract informativeness score
+            informative_val = verdict.get("informative", 0)
+            if isinstance(informative_val, dict):
+                # Handle nested dict: try common keys
+                informative_val = informative_val.get("value", informative_val.get("score", 0))
+            try:
+                enriched["informative"] = int(informative_val)
+            except (ValueError, TypeError):
+                logger.warning("Could not parse informative value: %s, defaulting to 0", informative_val)
+                enriched["informative"] = 0
+
             enriched["informativeness_explanation"] = verdict.get("explanation", "")
             scored.append(enriched)
         return scored

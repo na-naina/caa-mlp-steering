@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -45,6 +46,17 @@ def configure_logging(verbose: bool = False) -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         level=level,
     )
+
+
+def _serialize_for_json(obj: Any) -> Any:
+    """Recursively convert dataclass objects to dicts for JSON serialization."""
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    elif isinstance(obj, dict):
+        return {k: _serialize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_serialize_for_json(item) for item in obj]
+    return obj
 
 
 def parse_args() -> argparse.Namespace:
@@ -315,8 +327,26 @@ def main() -> int:
 
     # Now load all judges and score all generated responses
     eval_cfg = config.get("evaluation", {})
-    judge = _maybe_build_judge(eval_cfg)
-    informativeness_judge = _maybe_build_informativeness(eval_cfg)
+
+    # Check if we can share the judge model to save memory
+    shared_judge_model = None
+    judge_cfg = eval_cfg.get("judge", {})
+    info_cfg = eval_cfg.get("informativeness", {})
+
+    truth_model = judge_cfg.get("model") if judge_cfg.get("mode", "zero_shot") == "zero_shot" else None
+    info_model = info_cfg.get("model") if info_cfg.get("mode", "zero_shot") == "zero_shot" and info_cfg.get("enabled", False) else None
+
+    # If both judges use the same model, load it once
+    if truth_model and info_model and truth_model == info_model:
+        LOGGER.info("Both judges use '%s' - loading once and sharing", truth_model)
+        shared_judge_model = load_causal_model(
+            truth_model,
+            dtype=judge_cfg.get("dtype", "bfloat16"),
+            device_map=judge_cfg.get("device_map", "auto"),
+        )
+
+    judge = _maybe_build_judge(eval_cfg, shared_model=shared_judge_model)
+    informativeness_judge = _maybe_build_informativeness(eval_cfg, shared_model=shared_judge_model)
     semantic_judge = _maybe_build_semantic(eval_cfg)
     bleurt_judge = _maybe_build_bleurt(eval_cfg)
 
@@ -327,7 +357,7 @@ def main() -> int:
         )
 
     with (run_dir / "results.json").open("w") as f:
-        json.dump(evaluation, f, indent=2)
+        json.dump(_serialize_for_json(evaluation), f, indent=2)
 
     LOGGER.info("Experiment complete - results stored in %s", run_dir)
     return 0
@@ -437,7 +467,7 @@ def _build_vector_bank(
     return bank
 
 
-def _maybe_build_judge(eval_cfg: Dict):
+def _maybe_build_judge(eval_cfg: Dict, shared_model=None):
     """Build truthfulness judge (zero-shot or fine-tuned)."""
     judge_cfg = eval_cfg.get("judge", {})
     mode = judge_cfg.get("mode", "zero_shot")
@@ -452,6 +482,7 @@ def _maybe_build_judge(eval_cfg: Dict):
             dtype=judge_cfg.get("dtype", "bfloat16"),
             device_map=judge_cfg.get("device_map", "auto"),
             max_new_tokens=judge_cfg.get("max_new_tokens", 32),
+            shared_model=shared_model,
         )
     elif mode == "finetuned":
         model_name = judge_cfg.get("finetuned_model")
@@ -470,7 +501,7 @@ def _maybe_build_judge(eval_cfg: Dict):
         return None
 
 
-def _maybe_build_informativeness(eval_cfg: Dict):
+def _maybe_build_informativeness(eval_cfg: Dict, shared_model=None):
     """Build informativeness judge (zero-shot or fine-tuned)."""
     info_cfg = eval_cfg.get("informativeness", {})
     if not info_cfg.get("enabled", False):
@@ -489,6 +520,7 @@ def _maybe_build_informativeness(eval_cfg: Dict):
             dtype=info_cfg.get("dtype", "bfloat16"),
             device_map=info_cfg.get("device_map", "auto"),
             max_new_tokens=info_cfg.get("max_new_tokens", 32),
+            shared_model=shared_model,
         )
     elif mode == "finetuned":
         model_name = info_cfg.get("finetuned_model")
@@ -581,9 +613,11 @@ def _score_all_evaluations(
                     bleurt_judge is not None,
                 )
 
-                # Update the in-memory data
+                # Update the in-memory data - flatten the stats into top level
                 gen_data["details"] = annotated
-                gen_data["stats"] = stats
+                # Convert dataclass to dict and merge into gen_data
+                stats_dict = dataclasses.asdict(stats)
+                gen_data.update(stats_dict)
 
                 # Also update the individual generation_details.json file on disk
                 detail_file = run_dir / variant_name / scale_key / "generation_details.json"
@@ -613,11 +647,13 @@ def _run_evaluations(
 
     eval_cfg = config.get("evaluation", {})
     gen_cfg = {
+        "preset": eval_cfg.get("preset"),  # TruthfulQA preset (qa, help, null, etc.)
         "temperature": eval_cfg.get("temperature", 0.7),
         "top_p": eval_cfg.get("top_p", 0.9),
         "top_k": eval_cfg.get("top_k", 50),
         "max_new_tokens": eval_cfg.get("max_new_tokens", 80),
         "max_length": steering_cfg.get("max_length", 512),
+        "stop_sequences": eval_cfg.get("stop_sequences", []),
     }
 
     test_items = dataset_manager.get_items(splits.test)
@@ -626,7 +662,8 @@ def _run_evaluations(
 
     param_dtype = next(model.parameters()).dtype
 
-    variants = {
+    # Build all available variants
+    all_variants = {
         "baseline": None,
         "steered": vector_bank.base_vector.to(primary_device, dtype=param_dtype),
     }
@@ -634,11 +671,20 @@ def _run_evaluations(
     if mlp_mc is not None:
         base = vector_bank.base_vector.unsqueeze(0).to(primary_device, dtype=param_dtype)
         vector = mlp_mc(base).squeeze(0)
-        variants["mlp_mc"] = vector.detach()
+        all_variants["mlp_mc"] = vector.detach()
     if mlp_gen is not None:
         base = vector_bank.base_vector.unsqueeze(0).to(primary_device, dtype=param_dtype)
         vector = mlp_gen(base).squeeze(0)
-        variants["mlp_gen"] = vector.detach()
+        all_variants["mlp_gen"] = vector.detach()
+
+    # Filter variants based on config
+    enabled_variants = steering_cfg.get("enabled_variants", None)
+    if enabled_variants is not None:
+        variants = {k: v for k, v in all_variants.items() if k in enabled_variants}
+        LOGGER.info("Using enabled variants: %s", list(variants.keys()))
+    else:
+        variants = all_variants
+        LOGGER.info("Using all available variants: %s", list(variants.keys()))
 
     layer_index = config["model"]["layer"]
 

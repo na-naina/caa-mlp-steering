@@ -21,18 +21,25 @@ class LLMBinaryJudge:
         dtype: str | None = "bfloat16",
         device_map: str | None = "auto",
         max_new_tokens: int = 32,
+        shared_model=None,
     ) -> None:
-        loaded = load_causal_model(
-            model_name,
-            dtype=dtype,
-            device_map=device_map,
-        )
-        self.model = loaded.model
-        self.tokenizer = loaded.tokenizer
-        self.device = loaded.primary_device
+        if shared_model is not None:
+            self.model = shared_model.model
+            self.tokenizer = shared_model.tokenizer
+            self.device = shared_model.primary_device
+            logger.info("Using shared LLM judge model '%s' on device %s", model_name, self.device)
+        else:
+            loaded = load_causal_model(
+                model_name,
+                dtype=dtype,
+                device_map=device_map,
+            )
+            self.model = loaded.model
+            self.tokenizer = loaded.tokenizer
+            self.device = loaded.primary_device
+            logger.info("Loaded LLM judge '%s' on device %s", model_name, self.device)
         self.max_new_tokens = max_new_tokens
         self.model.eval()
-        logger.info("Loaded LLM judge '%s' on device %s", model_name, self.device)
 
     def score_responses(self, responses: Iterable[Dict]) -> List[Dict]:
         """Annotate responses with binary match decision."""

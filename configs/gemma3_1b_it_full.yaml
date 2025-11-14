@@ -1,28 +1,28 @@
 model:
-  name: google/gemma-3-1b-pt
+  name: google/gemma-3-1b-it
   family: gemma3
   layer: 12
   dtype: bfloat16
-  device_map: cuda:0  # Restrict main model to GPU 0, leave GPU 1 for judge
+  device_map: cuda:0
 
 slurm:
-  gpus: 2  # Main model + judge
+  gpus: 2
   cpus: 8
   mem_gb: 64
   time: "12:00:00"
 
 steering:
-  enabled_variants: [baseline, steered, mlp_gen]  # Skip mlp_mc (ineffective)
+  enabled_variants: [baseline, steered, mlp_gen]
 
 evaluation:
-  preset: qa  # Use QA preset with few-shot examples
+  preset: qa
 
   judge:
     mode: zero_shot
     model: google/gemma-3-12b-it
     max_new_tokens: 128
     dtype: bfloat16
-    device_map: cuda:1  # Judge on second GPU
+    device_map: cuda:1
 
   informativeness:
     enabled: true

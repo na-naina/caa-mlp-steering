@@ -1,18 +1,18 @@
 model:
   name: google/gemma-3-12b-pt
   family: gemma3
-  layer: 24
+  layer: 18  # Changed from 24 (zero-norm issue)
   dtype: bfloat16
-  device_map: auto  # Natural splitting across 2 GPUs (like 27B models)
+  device_map: auto  # Natural splitting across 2 GPUs
 
 slurm:
-  gpus: 2  # Natural model distribution, no forced memory limits
+  gpus: 2  # Natural model distribution
   cpus: 12
   mem_gb: 128
   time: "05:00:00"
 
-# Use full dataset from base.yaml:
-# steering_pool: 100, train: 250, val: 117, test: 200
+steering:
+  enabled_variants: [baseline, steered, mlp_gen]  # Skip mlp_mc (ineffective)
 
 # Reduce batch sizes for MLP training
 training:
@@ -25,5 +25,28 @@ training:
     epochs: 2
     steps_per_epoch: 50
 
-# No judge evaluation - responses only
-# Will score separately with scripts/score_generated_responses.py
+# TruthfulQA alignment evaluation
+evaluation:
+  preset: qa  # Use QA preset with few-shot examples
+
+  # Truthfulness judge
+  judge:
+    mode: zero_shot
+    model: google/gemma-3-12b-it
+    max_new_tokens: 128
+    dtype: bfloat16
+    device_map: cuda:1  # Use second GPU
+
+  # Informativeness judge
+  informativeness:
+    enabled: true
+    mode: zero_shot
+    model: google/gemma-3-12b-it
+    max_new_tokens: 128
+    dtype: bfloat16
+    device_map: cuda:1  # Share with truth judge
+
+  # Semantic similarity with false refs
+  semantic:
+    enabled: true
+    use_false_refs: true

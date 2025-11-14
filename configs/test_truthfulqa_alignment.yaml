@@ -1,0 +1,102 @@
+run:
+  id: test_truthfulqa_alignment
+  seed: 42
+
+paths:
+  output_root: outputs
+  cache_root: cache
+  hf_cache: cache/transformers
+
+model:
+  name: google/gemma-3-270m
+  layer: 8
+  dtype: bfloat16
+  device_map: auto
+
+steering:
+  max_length: 512
+  batch_size: 2
+  scales: [1.0]  # Only test steered (scale 0 is redundant with baseline)
+  enabled_variants: [baseline, mlp_gen]  # Skip mlp_mc (ineffective), skip steered for this test
+  use_mlp: true
+  vector_bank:
+    num_vectors: 3  # Reduced for speed
+    min_samples: 5
+    max_samples: 8
+
+mlp:
+  architecture:
+    hidden_multiplier: 2.0
+    dropout: 0.1
+  mc_training:
+    epochs: 1  # Minimal for testing
+    steps_per_epoch: 5
+    batch_size: 2
+    margin: 1.0
+    lr: 1.0e-4
+    weight_decay: 0.0
+    grad_clip: 1.0
+  gen_training:
+    epochs: 1  # Minimal for testing
+    steps_per_epoch: 5
+    batch_size: 2
+    lr: 1.0e-4
+    weight_decay: 0.0
+    grad_clip: 1.0
+
+truthfulqa:
+  dataset_name: truthful_qa
+  dataset_config: generation
+  cache_dir: cache/datasets
+  split:
+    steering_pool: 10  # Small for quick test
+    train: 15
+    val: 5
+    test: 10  # Just 10 for validation
+
+evaluation:
+  # Test TruthfulQA preset prompts
+  preset: qa  # Use QA preset with few-shot examples
+
+  max_new_tokens: 64
+  temperature: 0.3
+  top_p: 0.9
+  top_k: 50
+  stop_sequences: ["\n\n", "\nQuestion:"]
+
+  # Truthfulness judge - use same small model for testing
+  judge:
+    mode: zero_shot
+    model: google/gemma-3-270m  # Use same model to save memory
+    max_new_tokens: 64
+    dtype: bfloat16
+    device_map: auto
+
+  # Informativeness judge - enabled and tested
+  informativeness:
+    enabled: true
+    mode: zero_shot
+    model: google/gemma-3-270m  # Use same model
+    max_new_tokens: 64
+    dtype: bfloat16
+    device_map: auto
+
+  # Semantic similarity with false reference comparison
+  semantic:
+    enabled: true
+    model: sentence-transformers/all-MiniLM-L6-v2
+    similarity_threshold: 0.6
+    use_false_refs: true  # Test new feature
+
+  # BLEURT - disabled for quick test (requires installation)
+  bleurt:
+    enabled: false
+    checkpoint: bleurt-base-128
+    cache_dir: cache/bleurt
+
+slurm:
+  partition: gpu
+  gpus: 1
+  cpus: 4
+  mem_gb: 16
+  time: "01:00:00"
