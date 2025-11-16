@@ -193,6 +193,32 @@ evaluation:
 
 ---
 
+## Updates (Nov 16, 2025)
+
+### Code changes
+- Added robust parsing of truthfulness judge outputs to avoid crashes on non-numeric `match` fields (src/evaluation/judge.py).
+- Disabled TensorFlow imports for semantic scoring and scoring script to prevent tf-keras/Keras 3 errors; scoring script now sets TF-off env vars early and accepts `--config` for cache/judge settings (src/evaluation/semantic.py, scripts/score_generated_responses.py).
+- Generation stats now retain all fields (including informativeness/semantic/BLEURT) when serialized, even if judges run inline (src/jobs/run_experiment.py).
+- Activation extraction now masks padding tokens when averaging, reducing noise/instability (src/steering/extract.py).
+- Vector bank sampling clamps requested sample sizes to available activations to avoid sample-size errors after NaN filtering (src/steering/vector_bank.py).
+
+### New configs
+- `configs/gemma3_270m_it_local.yaml`: full local run; local caches/outputs; 270m judges.
+- `configs/local_eval_only.yaml`: local post-hoc scoring defaults.
+- `configs/gemma3_12b_it_fp16_short.yaml`: fp16 load + `max_length=384` (NaN mitigation option 1 + 2) for 12B.
+- `configs/gemma3_27b_it_fp16_short.yaml`: same for 27B.
+
+### Local runs
+- Dry-run succeeded with `configs/gemma3_270m_it_local.yaml`.
+- Post-hoc scoring now works with TF disabled; BLEURT remains optional (needs bleurt install).
+
+### NaN mitigation guidance
+- Options to test on cluster for NaN activations (12B/27B):
+  1) Load in fp16 for extraction (`model.dtype: float16`).
+  2) Shorten extraction context (`steering.max_length: 384`).
+  Configs above bake both knobs for quick reruns.
+---
+
 ## Files Created/Modified
 
 ### New Files
