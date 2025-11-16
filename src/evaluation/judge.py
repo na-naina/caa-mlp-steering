@@ -69,7 +69,13 @@ class LLMBinaryJudge:
             enriched = dict(item)
             enriched["judge_prompt"] = prompt
             enriched["judge_response"] = decoded.strip()
-            enriched["match"] = int(verdict.get("match", 0))
+            # Robustly coerce match to int; default to 0 on failures
+            match_raw = verdict.get("match", 0)
+            try:
+                enriched["match"] = int(match_raw)
+            except (ValueError, TypeError):
+                logger.warning("Could not parse match value '%s'; defaulting to 0", match_raw)
+                enriched["match"] = 0
             enriched["explanation"] = verdict.get("explanation", "")
             scored.append(enriched)
         return scored

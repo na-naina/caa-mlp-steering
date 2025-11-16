@@ -1,0 +1,74 @@
+base: configs/base.yaml
+
+paths:
+  cache_root: ./cache_local
+  output_root: ./outputs_local
+  hf_cache: ./cache_local/transformers
+  shared_env_script: null
+
+# Reuse the standard 270m-it settings
+model:
+  name: google/gemma-3-270m-it
+  layer: 8
+  dtype: bfloat16
+  device_map: auto
+
+steering:
+  max_length: 512
+  batch_size: 8
+  use_mlp: true
+  scales: [1.0]
+  vector_bank:
+    num_vectors: 16
+    min_samples: 30
+    max_samples: 50
+
+mlp:
+  architecture:
+    hidden_multiplier: 2.0
+    dropout: 0.1
+  mc_training:
+    epochs: 1
+    steps_per_epoch: 50
+    batch_size: 8
+    margin: 1.0
+    lr: 0.0001
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 0.01
+  gen_training:
+    epochs: 1
+    steps_per_epoch: 40
+    batch_size: 4
+    lr: 0.0001
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 0.01
+
+truthfulqa:
+  split:
+    steering_pool: 100
+    train: 250
+    val: 117
+    test: 200
+
+evaluation:
+  preset: qa
+  temperature: 0.7
+  top_p: 0.9
+  top_k: 50
+  max_new_tokens: 80
+  judge:
+    mode: zero_shot
+    model: google/gemma-3-270m-it
+    dtype: bfloat16
+    device_map: auto
+  informativeness:
+    enabled: true
+    mode: zero_shot
+    model: google/gemma-3-270m-it
+    dtype: bfloat16
+    device_map: auto
+  semantic:
+    enabled: true
+    use_false_refs: true

@@ -65,6 +65,7 @@ class ActivationExtractor:
 
     def _run_batch(self, texts: List[str]) -> torch.Tensor:
         activations: List[torch.Tensor] = []
+        attention_mask: torch.Tensor | None = None
 
         def collect(hidden: torch.Tensor) -> None:
             # Upcast to fp32 to avoid bfloat16 numerical issues
@@ -79,12 +80,15 @@ class ActivationExtractor:
                 max_length=self.max_length,
             )
             encoded = {k: v.to(self.loaded.primary_device) for k, v in encoded.items()}
+            attention_mask = encoded.get("attention_mask")
             # Disable autocast during extraction to prevent precision issues
             with torch.no_grad(), torch.cuda.amp.autocast(enabled=False):
                 _ = self.loaded.model(**encoded)
 
         if not activations:
             raise RuntimeError("Failed to capture activations for batch")
+        if attention_mask is None:
+            raise RuntimeError("Attention mask missing during activation capture")
 
         hidden = activations[0]
 
@@ -103,7 +107,11 @@ class ActivationExtractor:
                     logger.error(f"Problematic text (first 200 chars): {text[:200]}")
             raise ValueError("Activations contain NaN or Inf values")
 
-        mean_hidden = hidden.mean(dim=1)  # batch, hidden_dim
+        # Compute mean over non-padding tokens only
+        mask = attention_mask.to(hidden.device).unsqueeze(-1).float()
+        token_counts = mask.sum(dim=1).clamp(min=1.0)
+        masked_sum = (hidden * mask).sum(dim=1)
+        mean_hidden = masked_sum / token_counts  # batch, hidden_dim
         return mean_hidden.cpu()
 
     def collect_mean_activations(self, texts: Iterable[str]) -> tuple[torch.Tensor, list[int]]:
@@ -207,4 +215,3 @@ def compute_caa_vector(
         vector = F.normalize(vector, dim=0)
 
     return vector
-

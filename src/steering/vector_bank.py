@@ -64,9 +64,23 @@ class VectorBankBuilder:
 
         total_samples = self.pos.shape[0]
         if min_size > total_samples:
-            raise ValueError(
-                "Minimum sample size exceeds available activation count"
+            logger.warning(
+                "Requested min sample size %d exceeds available activations (%d); "
+                "clamping to %d",
+                min_size,
+                total_samples,
+                total_samples,
             )
+            min_size = total_samples
+        if max_size > total_samples:
+            logger.warning(
+                "Requested max sample size %d exceeds available activations (%d); "
+                "clamping to %d",
+                max_size,
+                total_samples,
+                total_samples,
+            )
+            max_size = total_samples
 
         sizes = self._resolve_sample_sizes(num_vectors, min_size, max_size)
 

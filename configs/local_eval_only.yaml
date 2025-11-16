@@ -1,0 +1,17 @@
+paths:
+  cache_root: ./cache_local
+  hf_cache: ./cache_local/transformers
+
+evaluation:
+  judge:
+    model: google/gemma-3-270m-it
+    dtype: bfloat16
+    device_map: auto
+  informativeness:
+    enabled: true
+    model: google/gemma-3-270m-it
+    dtype: bfloat16
+    device_map: auto
+  semantic:
+    enabled: true
+    model: sentence-transformers/all-MiniLM-L6-v2

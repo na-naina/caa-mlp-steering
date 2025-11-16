@@ -9,7 +9,21 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import sys
 from pathlib import Path
+
+# Disable TensorFlow imports; we only use PyTorch backends here.
+os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
+os.environ.setdefault("USE_TF", "0")
+os.environ.setdefault("SENTENCE_TRANSFORMERS_NO_TF_IMPORT", "1")
+
+import yaml
+
+# Ensure repository root is on sys.path when run as a script
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.evaluation.judge import LLMBinaryJudge
 from src.evaluation.informativeness import LLMInformativenessJudge
@@ -27,6 +41,12 @@ logger = logging.getLogger(__name__)
 def main():
     parser = argparse.ArgumentParser(description="Score pre-generated responses")
     parser.add_argument("run_dir", type=Path, help="Run output directory")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Optional YAML config to pull judge/semantic settings and cache paths",
+    )
     parser.add_argument(
         "--judge-model",
         default="google/gemma-3-12b-it",
@@ -58,11 +78,57 @@ def main():
         help="Skip semantic judge scoring",
     )
     parser.add_argument(
+        "--semantic-model",
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        help="Semantic judge model (only used if semantic judge is enabled)",
+    )
+    parser.add_argument(
         "--no-bleurt",
         action="store_true",
         help="Skip BLEURT judge scoring",
     )
     args = parser.parse_args()
+
+    # Load optional config to set cache paths and judge defaults
+    cfg = {}
+    if args.config:
+        if not args.config.exists():
+            raise ValueError(f"Config file does not exist: {args.config}")
+        with args.config.open() as f:
+            cfg = yaml.safe_load(f) or {}
+        paths_cfg = cfg.get("paths", {})
+        hf_cache = paths_cfg.get("hf_cache")
+        cache_root = paths_cfg.get("cache_root")
+        if hf_cache:
+            Path(hf_cache).mkdir(parents=True, exist_ok=True)
+            os.environ.setdefault("HF_HOME", str(hf_cache))
+            os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache))
+            os.environ.setdefault("TRANSFORMERS_CACHE", str(Path(hf_cache) / "transformers"))
+            os.environ.setdefault("HF_DATASETS_CACHE", str(Path(hf_cache) / "datasets"))
+        if cache_root:
+            Path(cache_root).mkdir(parents=True, exist_ok=True)
+            os.environ.setdefault("HF_DATASETS_CACHE", str(Path(cache_root) / "datasets"))
+            os.environ.setdefault("TRANSFORMERS_CACHE", str(Path(cache_root) / "transformers"))
+
+        eval_cfg = cfg.get("evaluation", {})
+        judge_cfg = eval_cfg.get("judge", {})
+        info_cfg = eval_cfg.get("informativeness", {})
+        semantic_cfg = eval_cfg.get("semantic", {})
+
+        # Override defaults only if user didn't set different values explicitly
+        if args.judge_model == parser.get_default("judge_model") and judge_cfg.get("model"):
+            args.judge_model = judge_cfg["model"]
+        if args.judge_device == parser.get_default("judge_device") and judge_cfg.get("device_map"):
+            args.judge_device = judge_cfg["device_map"]
+        if args.informativeness_model is None and info_cfg.get("model"):
+            args.informativeness_model = info_cfg["model"]
+        if args.semantic_model == parser.get_default("semantic_model") and semantic_cfg.get("model"):
+            args.semantic_model = semantic_cfg["model"]
+
+        # Respect semantic enabled flag from config if user didn't override with --no-semantic
+        if not args.no_semantic:
+            if semantic_cfg.get("enabled") is False:
+                args.no_semantic = True
 
     run_dir = args.run_dir
     if not run_dir.exists():
@@ -129,7 +195,7 @@ def main():
     if not args.no_semantic:
         logger.info("Loading semantic judge")
         config = SemanticJudgeConfig(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_name=args.semantic_model,
             similarity_threshold=0.6,
         )
         semantic_judge = SemanticJudge(config)

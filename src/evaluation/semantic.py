@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Dict, Iterable, List
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,14 @@ class SemanticJudge:
     """Judge answers by cosine similarity to known-correct answers."""
 
     def __init__(self, config: SemanticJudgeConfig) -> None:
+        # Disable TF integration before importing sentence_transformers/transformers
+        os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
+        os.environ.setdefault("USE_TF", "0")
+        # Also disable sentence-transformers TF logging path
+        os.environ.setdefault("SENTENCE_TRANSFORMERS_NO_TF_IMPORT", "1")
+
+        from sentence_transformers import SentenceTransformer  # local import to avoid TF at module load
+
         self.config = config
         logger.info("Loading semantic judge model '%s'", config.model_name)
         self.model = SentenceTransformer(config.model_name)

@@ -1,0 +1,7 @@
+base: configs/gemma3_12b_it_full.yaml
+
+model:
+  dtype: float16  # Option 1: run extraction in fp16 to avoid bf16 NaNs
+
+steering:
+  max_length: 384  # Option 2: shorter extraction context to reduce activation magnitude

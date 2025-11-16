@@ -750,12 +750,14 @@ def _serialize_mc_stats(mc_result: Dict) -> Dict:
 
 def _serialize_generation_stats(gen_result: Dict) -> Dict:
     stats = gen_result["stats"]
-    return {
-        "accuracy": stats.accuracy,
-        "semantic_mean": stats.semantic_mean,
-        "total": stats.total,
-        "details": gen_result.get("details", []),  # Include details for later scoring
-    }
+    # Preserve all GenerationStats fields (e.g., informativeness, semantic diff).
+    stats_dict = (
+        dataclasses.asdict(stats)
+        if dataclasses.is_dataclass(stats)
+        else dict(stats)
+    )
+    stats_dict["details"] = gen_result.get("details", [])
+    return stats_dict
 
 
 if __name__ == "__main__":
