@@ -33,20 +33,26 @@ def parse_model_name(dirname: str) -> dict:
     return None
 
 
-def load_all_results(base_dir: Path) -> list:
-    """Load results from all model runs."""
-    results = []
+def load_all_results(base_dir: Path, model_type: str = 'pt') -> list:
+    """Load results from all model runs.
 
-    # Skip -it variants if we have PT version for same model size
-    skip_patterns = ['_it_2025']  # Skip IT variants from 2025 runs
+    Args:
+        base_dir: Base directory containing experiment outputs
+        model_type: 'pt' for pretrained models, 'it' for instruct-tuned models
+    """
+    results = []
 
     for run_dir in base_dir.iterdir():
         if not run_dir.is_dir():
             continue
 
-        # Skip IT variants
-        if any(pattern in run_dir.name for pattern in skip_patterns):
+        # Filter based on model type
+        is_it_model = '_it_2025' in run_dir.name
+        if model_type == 'pt' and is_it_model:
             print(f"⚠️  Skipping {run_dir.name}: IT variant (using PT only)")
+            continue
+        elif model_type == 'it' and not is_it_model:
+            print(f"⚠️  Skipping {run_dir.name}: PT variant (using IT only)")
             continue
 
         model_info = parse_model_name(run_dir.name)
