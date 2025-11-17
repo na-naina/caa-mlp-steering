@@ -12,7 +12,7 @@ slurm:
   time: "12:00:00"
 
 steering:
-  enabled_variants: [baseline, steered, mlp_gen]
+  enabled_variants: [baseline, steered, mlp_gen, mlp_mc]
 
 evaluation:
   preset: qa

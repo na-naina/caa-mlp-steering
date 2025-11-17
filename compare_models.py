@@ -19,6 +19,7 @@ plt.rcParams['font.size'] = 10
 
 def parse_model_name(dirname: str) -> dict:
     """Extract model family and size from directory name."""
+    # Try matching XB format (e.g., 1b, 4b, 12b, 27b)
     match = re.search(r'(gemma[23])_(\d+)b', dirname)
     if match:
         family = match.group(1)
@@ -30,6 +31,20 @@ def parse_model_name(dirname: str) -> dict:
             'size_str': f"{size_str}B",
             'full_name': f"{family.capitalize()}-{size_str}B"
         }
+
+    # Try matching XXXm format (e.g., 270m)
+    match = re.search(r'(gemma[23])_(\d+)m', dirname)
+    if match:
+        family = match.group(1)
+        size_m = int(match.group(2))
+        size = size_m / 1000.0  # Convert to billions for consistent sorting
+        return {
+            'family': family,
+            'size': size,
+            'size_str': f"{size_m}M",
+            'full_name': f"{family.capitalize()}-{size_m}M"
+        }
+
     return None
 
 
@@ -74,7 +89,7 @@ def load_all_results(base_dir: Path, model_type: str = 'pt') -> list:
             'variants': {}
         }
 
-        for variant in ['baseline', 'steered', 'mlp_gen']:
+        for variant in ['baseline', 'steered', 'mlp_mc', 'mlp_gen']:
             if variant not in data:
                 continue
 
@@ -126,18 +141,20 @@ def plot_scaling_analysis(results: list, output_dir: Path):
     colors = {
         'baseline': '#2ecc71',
         'steered': '#3498db',
+        'mlp_mc': '#e74c3c',
         'mlp_gen': '#9b59b6'
     }
 
     labels = {
         'baseline': 'Baseline',
         'steered': 'Raw CAA',
+        'mlp_mc': 'MLP-MC',
         'mlp_gen': 'MLP-Gen'
     }
 
     # Plot 1: Gemma2 Accuracy Scaling
     ax = axes[0, 0]
-    for variant in ['baseline', 'steered', 'mlp_gen']:
+    for variant in ['baseline', 'steered', 'mlp_mc', 'mlp_gen']:
         sizes = []
         accuracies = []
         for r in gemma2_results:
@@ -159,7 +176,7 @@ def plot_scaling_analysis(results: list, output_dir: Path):
 
     # Plot 2: Gemma3 Accuracy Scaling
     ax = axes[0, 1]
-    for variant in ['baseline', 'steered', 'mlp_gen']:
+    for variant in ['baseline', 'steered', 'mlp_mc', 'mlp_gen']:
         sizes = []
         accuracies = []
         for r in gemma3_results:
@@ -182,7 +199,7 @@ def plot_scaling_analysis(results: list, output_dir: Path):
 
     # Plot 3: Gemma2 Semantic Scaling
     ax = axes[1, 0]
-    for variant in ['baseline', 'steered', 'mlp_gen']:
+    for variant in ['baseline', 'steered', 'mlp_mc', 'mlp_gen']:
         sizes = []
         semantics = []
         for r in gemma2_results:
@@ -204,7 +221,7 @@ def plot_scaling_analysis(results: list, output_dir: Path):
 
     # Plot 4: Gemma3 Semantic Scaling
     ax = axes[1, 1]
-    for variant in ['baseline', 'steered', 'mlp_gen']:
+    for variant in ['baseline', 'steered', 'mlp_mc', 'mlp_gen']:
         sizes = []
         semantics = []
         for r in gemma3_results:
@@ -233,67 +250,86 @@ def plot_scaling_analysis(results: list, output_dir: Path):
 
 
 def plot_steering_effectiveness(results: list, output_dir: Path):
-    """Plot steering effectiveness across models."""
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-    fig.suptitle('Steering Effectiveness Across Models', fontsize=16, fontweight='bold')
+    """Plot steering effectiveness across models - ALL VARIANTS."""
+    fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+    fig.suptitle('Steering Effectiveness Across Models - All Variants', fontsize=16, fontweight='bold')
 
     model_names = []
     baseline_accs = []
+    steered_accs = []
+    mlp_mc_accs = []
     mlp_gen_accs = []
-    improvements = []
 
     for r in results:
-        if 'baseline' in r['variants'] and 'mlp_gen' in r['variants']:
+        if 'baseline' in r['variants']:
             model_names.append(r['model_info']['full_name'])
-            baseline_acc = r['variants']['baseline']['accuracy'] * 100
-            mlp_gen_acc = r['variants']['mlp_gen']['accuracy'] * 100
-            baseline_accs.append(baseline_acc)
-            mlp_gen_accs.append(mlp_gen_acc)
-            improvements.append(mlp_gen_acc - baseline_acc)
+            baseline_accs.append(r['variants']['baseline']['accuracy'] * 100)
+            steered_accs.append(r['variants']['steered']['accuracy'] * 100 if 'steered' in r['variants'] else None)
+            mlp_mc_accs.append(r['variants']['mlp_mc']['accuracy'] * 100 if 'mlp_mc' in r['variants'] else None)
+            mlp_gen_accs.append(r['variants']['mlp_gen']['accuracy'] * 100 if 'mlp_gen' in r['variants'] else None)
 
-    # Plot 1: Absolute accuracies
+    # Plot 1: Absolute accuracies for all variants
     ax = axes[0]
     x = np.arange(len(model_names))
-    width = 0.35
+    width = 0.2
 
-    bars1 = ax.bar(x - width/2, baseline_accs, width, label='Baseline',
-                   color='#2ecc71', alpha=0.8)
-    bars2 = ax.bar(x + width/2, mlp_gen_accs, width, label='MLP-Gen',
-                   color='#9b59b6', alpha=0.8)
+    ax.bar(x - 1.5*width, baseline_accs, width, label='Baseline', color='#2ecc71', alpha=0.8)
+
+    if any(v is not None for v in steered_accs):
+        ax.bar(x - 0.5*width, [v if v is not None else 0 for v in steered_accs], width,
+               label='Steered (Raw CAA)', color='#3498db', alpha=0.8)
+
+    if any(v is not None for v in mlp_mc_accs):
+        ax.bar(x + 0.5*width, [v if v is not None else 0 for v in mlp_mc_accs], width,
+               label='MLP-MC', color='#e74c3c', alpha=0.8)
+
+    if any(v is not None for v in mlp_gen_accs):
+        ax.bar(x + 1.5*width, [v if v is not None else 0 for v in mlp_gen_accs], width,
+               label='MLP-Gen', color='#9b59b6', alpha=0.8)
 
     ax.set_xlabel('Model', fontsize=12)
     ax.set_ylabel('Judge Accuracy (%)', fontsize=12)
-    ax.set_title('Baseline vs MLP-Gen Accuracy', fontsize=13, fontweight='bold')
+    ax.set_title('All Variants Comparison', fontsize=13, fontweight='bold')
     ax.set_xticks(x)
     ax.set_xticklabels(model_names, rotation=45, ha='right')
     ax.legend()
     ax.grid(True, alpha=0.3, axis='y')
 
-    # Add value labels on bars
-    for bar in bars1 + bars2:
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height,
-                f'{height:.1f}%', ha='center', va='bottom', fontsize=9)
-
-    # Plot 2: Improvements
+    # Plot 2: Improvements over baseline for each variant
     ax = axes[1]
-    colors = ['#27ae60' if x >= 0 else '#e74c3c' for x in improvements]
-    bars = ax.bar(x, improvements, color=colors, alpha=0.8)
+    steered_improvements = [(s - b) if s is not None else None for b, s in zip(baseline_accs, steered_accs)]
+    mlp_mc_improvements = [(m - b) if m is not None else None for b, m in zip(baseline_accs, mlp_mc_accs)]
+    mlp_gen_improvements = [(m - b) if m is not None else None for b, m in zip(baseline_accs, mlp_gen_accs)]
+
+    if any(v is not None for v in steered_improvements):
+        ax.bar(x - width, [v if v is not None else 0 for v in steered_improvements], width,
+               label='Steered Δ', color='#3498db', alpha=0.8)
+
+    if any(v is not None for v in mlp_mc_improvements):
+        ax.bar(x, [v if v is not None else 0 for v in mlp_mc_improvements], width,
+               label='MLP-MC Δ', color='#e74c3c', alpha=0.8)
+
+    if any(v is not None for v in mlp_gen_improvements):
+        ax.bar(x + width, [v if v is not None else 0 for v in mlp_gen_improvements], width,
+               label='MLP-Gen Δ', color='#9b59b6', alpha=0.8)
 
     ax.set_xlabel('Model', fontsize=12)
-    ax.set_ylabel('Accuracy Change (%)', fontsize=12)
-    ax.set_title('MLP-Gen Improvement Over Baseline', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Accuracy Change vs Baseline (%)', fontsize=12)
+    ax.set_title('Improvements Over Baseline', fontsize=13, fontweight='bold')
     ax.set_xticks(x)
     ax.set_xticklabels(model_names, rotation=45, ha='right')
     ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+    ax.legend()
     ax.grid(True, alpha=0.3, axis='y')
 
-    # Add value labels
-    for bar in bars:
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height,
-                f'{height:+.1f}%', ha='center',
-                va='bottom' if height >= 0 else 'top', fontsize=9)
+    # Add value labels for improvements
+    for i, (st, mc, mg) in enumerate(zip(steered_improvements, mlp_mc_improvements, mlp_gen_improvements)):
+        if st is not None and abs(st) > 0.5:
+            ax.text(i - width, st, f'{st:+.1f}', ha='center', va='bottom' if st > 0 else 'top', fontsize=8)
+        if mc is not None and abs(mc) > 0.5:
+            ax.text(i, mc, f'{mc:+.1f}', ha='center', va='bottom' if mc > 0 else 'top', fontsize=8)
+        if mg is not None and abs(mg) > 0.5:
+            ax.text(i + width, mg, f'{mg:+.1f}', ha='center', va='bottom' if mg > 0 else 'top', fontsize=8)
 
     plt.tight_layout()
     output_file = output_dir / "steering_effectiveness.png"
@@ -384,21 +420,51 @@ def generate_comparison_report(results: list, output_dir: Path):
     report.append(f"Total models analyzed: {len(results)}")
     report.append("")
 
-    # Summary table
-    report.append("## Performance Summary")
+    # Summary table - ALL VARIANTS
+    report.append("## Performance Summary - All Variants")
     report.append("")
-    report.append("| Model | Baseline Acc | MLP-Gen Acc | Improvement | Baseline Sem | MLP-Gen Sem |")
-    report.append("|-------|--------------|-------------|-------------|--------------|-------------|")
+    report.append("### Judge Accuracy")
+    report.append("| Model | Baseline | Steered | MLP-MC | MLP-Gen |")
+    report.append("|-------|----------|---------|--------|---------|")
 
     for r in results:
-        if 'baseline' in r['variants'] and 'mlp_gen' in r['variants']:
-            name = r['model_info']['full_name']
+        name = r['model_info']['full_name']
+        baseline = f"{r['variants']['baseline']['accuracy']*100:5.1f}%" if 'baseline' in r['variants'] else "  -  "
+        steered = f"{r['variants']['steered']['accuracy']*100:5.1f}%" if 'steered' in r['variants'] else "  -  "
+        mlp_mc = f"{r['variants']['mlp_mc']['accuracy']*100:5.1f}%" if 'mlp_mc' in r['variants'] else "  -  "
+        mlp_gen = f"{r['variants']['mlp_gen']['accuracy']*100:5.1f}%" if 'mlp_gen' in r['variants'] else "  -  "
+        report.append(f"| {name:12} | {baseline:^8} | {steered:^7} | {mlp_mc:^6} | {mlp_gen:^7} |")
+
+    report.append("")
+    report.append("### Semantic Similarity")
+    report.append("| Model | Baseline | Steered | MLP-MC | MLP-Gen |")
+    report.append("|-------|----------|---------|--------|---------|")
+
+    for r in results:
+        name = r['model_info']['full_name']
+        baseline = f"{r['variants']['baseline']['semantic_mean']:.4f}" if 'baseline' in r['variants'] else "  -   "
+        steered = f"{r['variants']['steered']['semantic_mean']:.4f}" if 'steered' in r['variants'] else "  -   "
+        mlp_mc = f"{r['variants']['mlp_mc']['semantic_mean']:.4f}" if 'mlp_mc' in r['variants'] else "  -   "
+        mlp_gen = f"{r['variants']['mlp_gen']['semantic_mean']:.4f}" if 'mlp_gen' in r['variants'] else "  -   "
+        report.append(f"| {name:12} | {baseline:^8} | {steered:^7} | {mlp_mc:^6} | {mlp_gen:^7} |")
+
+    report.append("")
+    report.append("### Improvements over Baseline")
+    report.append("| Model | Steered Δ | MLP-MC Δ | MLP-Gen Δ |")
+    report.append("|-------|-----------|----------|-----------|")
+
+    for r in results:
+        name = r['model_info']['full_name']
+        if 'baseline' in r['variants']:
             b_acc = r['variants']['baseline']['accuracy'] * 100
-            m_acc = r['variants']['mlp_gen']['accuracy'] * 100
-            b_sem = r['variants']['baseline']['semantic_mean']
-            m_sem = r['variants']['mlp_gen']['semantic_mean']
-            delta = m_acc - b_acc
-            report.append(f"| {name:12} | {b_acc:6.2f}% | {m_acc:6.2f}% | {delta:+6.2f}% | {b_sem:.4f} | {m_sem:.4f} |")
+            steered_delta = (r['variants']['steered']['accuracy'] * 100 - b_acc) if 'steered' in r['variants'] else None
+            mlp_mc_delta = (r['variants']['mlp_mc']['accuracy'] * 100 - b_acc) if 'mlp_mc' in r['variants'] else None
+            mlp_gen_delta = (r['variants']['mlp_gen']['accuracy'] * 100 - b_acc) if 'mlp_gen' in r['variants'] else None
+
+            steered_str = f"{steered_delta:+5.1f}%" if steered_delta is not None else "  -  "
+            mlp_mc_str = f"{mlp_mc_delta:+5.1f}%" if mlp_mc_delta is not None else "  -  "
+            mlp_gen_str = f"{mlp_gen_delta:+5.1f}%" if mlp_gen_delta is not None else "  -  "
+            report.append(f"| {name:12} | {steered_str:^9} | {mlp_mc_str:^8} | {mlp_gen_str:^9} |")
 
     report.append("")
 

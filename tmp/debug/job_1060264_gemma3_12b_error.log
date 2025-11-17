@@ -1,42 +1,0 @@
-The following modules were not unloaded:
-  (Use "module --force purge" to unload all):
-
-  1) slurm/23.02.6
-2025-11-06 08:06:41,935 | INFO | caa.pipeline | Configured HuggingFace authentication from /springbrook/home/c/csuqqj/.cache/huggingface/token
-2025-11-06 08:06:41,942 | INFO | caa.pipeline | Cache environment: HF_HOME=/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/cache/transformers HF_DATASETS_CACHE=/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/cache/transformers/datasets TRANSFORMERS_CACHE=/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/cache/transformers/transformers
-2025-11-06 08:06:42,112 | INFO | caa.pipeline | Run directory: outputs/gemma3_12b_full_20251106_080635
-2025-11-06 08:06:42,113 | INFO | src.data.truthfulqa | Loading TruthfulQA dataset 'truthful_qa/generation'
-2025-11-06 08:06:45,019 | INFO | src.data.truthfulqa | Loaded 817 validation examples
-2025-11-06 08:06:45,045 | INFO | src.data.truthfulqa | Found 817 items with valid MC targets
-2025-11-06 08:06:45,045 | INFO | src.data.truthfulqa | Constructed pipeline splits (pool=100, train=250, val=117, test=200)
-2025-11-06 08:06:45,046 | INFO | src.models.loader | Loading model 'google/gemma-3-12b-pt' (dtype=torch.bfloat16, device_map=cuda:0)
-`torch_dtype` is deprecated! Use `dtype` instead!
-Loading checkpoint shards:   0%|          | 0/5 [00:00<?, ?it/s]Loading checkpoint shards:  20%|██        | 1/5 [00:05<00:21,  5.33s/it]Loading checkpoint shards:  40%|████      | 2/5 [00:10<00:15,  5.26s/it]Loading checkpoint shards:  60%|██████    | 3/5 [00:15<00:10,  5.22s/it]Loading checkpoint shards:  80%|████████  | 4/5 [00:20<00:05,  5.22s/it]Loading checkpoint shards: 100%|██████████| 5/5 [00:26<00:00,  5.28s/it]Loading checkpoint shards: 100%|██████████| 5/5 [00:26<00:00,  5.26s/it]
-2025-11-06 08:07:13,429 | INFO | src.models.loader | Model loaded. Primary device: cuda:0, dtype: torch.bfloat16
-2025-11-06 08:07:13,437 | INFO | src.data.truthfulqa | Prepared 100 CAA prompt pairs from provided indices
-2025-11-06 08:07:13,437 | INFO | caa.pipeline | Collecting steering activations (100 prompts)
-/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/src/steering/extract.py:83: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
-  with torch.no_grad(), torch.cuda.amp.autocast(enabled=False):
-2025-11-06 08:07:16,218 | INFO | src.steering.vector_bank | Built vector bank with base vector and 12 sampled vectors (range 30-50)
-2025-11-06 08:07:17,011 | INFO | caa.pipeline | Training MC MLP: MCTrainingConfig(epochs=2, steps_per_epoch=50, batch_size=8, margin=1.0, lr=0.0001, weight_decay=0.0, grad_clip=1.0, mse_reg=0.01)
-2025-11-06 08:07:17,041 | WARNING | src.steering.training | MC MLP epoch 1/2 - no valid training batches
-2025-11-06 08:07:17,057 | WARNING | src.steering.training | MC MLP epoch 2/2 - no valid training batches
-2025-11-06 08:07:17,057 | INFO | caa.pipeline | Training Generation MLP: GenTrainingConfig(epochs=2, steps_per_epoch=40, batch_size=4, lr=0.0001, weight_decay=0.0, grad_clip=1.0, mse_reg=0.01)
-Traceback (most recent call last):
-  File "/usr/lib64/python3.9/runpy.py", line 197, in _run_module_as_main
-    return _run_code(code, main_globals, None,
-  File "/usr/lib64/python3.9/runpy.py", line 87, in _run_code
-    exec(code, run_globals)
-  File "/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/src/jobs/run_experiment.py", line 556, in <module>
-    raise SystemExit(main())
-  File "/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/src/jobs/run_experiment.py", line 260, in main
-    gen_history = train_gen_mlp(
-  File "/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/src/steering/training.py", line 256, in train_gen_mlp
-    with steering_hook(
-  File "/usr/lib64/python3.9/contextlib.py", line 119, in __enter__
-    return next(self.gen)
-  File "/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/src/steering/apply.py", line 35, in steering_hook
-    layer = _get_decoder_layer(model, layer_index)
-  File "/springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/src/steering/apply.py", line 15, in _get_decoder_layer
-    raise ValueError("Unsupported model architecture for steering")
-ValueError: Unsupported model architecture for steering
