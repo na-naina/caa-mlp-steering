@@ -2,7 +2,10 @@ base: configs/gemma3_12b_it_full.yaml
 
 model:
   name: google/gemma-3-12b-it  # Explicit override to prevent base.yaml override
-  dtype: float16  # Option 1: run extraction in fp16 to avoid bf16 NaNs
+  dtype: bfloat16  # Use native Gemma3 training precision (bf16 range: 10^38 vs fp16: 65,504)
+  layer: 18  # Original extraction layer (reverted from 12)
 
 steering:
-  max_length: 384  # Option 2: shorter extraction context to reduce activation magnitude
+  max_length: 384  # Shorter extraction context to reduce activation magnitude
+  batch_size: 4  # Smaller extraction batches
+  autocast_dtype: bfloat16  # Enable autocast to prevent Inf×0=NaN operations

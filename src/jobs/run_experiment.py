@@ -22,7 +22,7 @@ from src.evaluation.truthfulqa import (
     evaluate_generation,
     evaluate_multiple_choice,
 )
-from src.models.loader import load_causal_model
+from src.models.loader import load_causal_model, _parse_dtype
 from src.steering.extract import (
     ActivationExtractor,
     compute_caa_vector,
@@ -213,11 +213,16 @@ def main() -> int:
         LOGGER.info("GPU allocation: main model uses %s", sorted(used_devs))
 
     steering_cfg = config.get("steering", {})
+    safe_attention = steering_cfg.get("safe_attention", False)
+    autocast_cfg = steering_cfg.get("autocast_dtype")
+    autocast_dtype = _parse_dtype(autocast_cfg) if autocast_cfg else None
     extractor = ActivationExtractor(
         loaded,
         model_cfg["layer"],
         max_length=steering_cfg.get("max_length", 512),
         batch_size=steering_cfg.get("batch_size", 8),
+        safe_attention=safe_attention,
+        autocast_dtype=autocast_dtype,
     )
 
     vector_bank = _build_vector_bank(

@@ -1,0 +1,41 @@
+model:
+  name: Qwen/Qwen2.5-32B
+  family: qwen2.5
+  layer: 48  # 64 total layers, extract from layer 48
+  dtype: bfloat16
+  device_map: auto
+  max_memory:
+    0: "40GiB"  # Main model uses GPUs 0 and 1
+    1: "40GiB"
+    2: "0GiB"   # Reserve GPU 2 for judge
+
+slurm:
+  gpus: 3  # 2 GPUs for 32B model + 1 for judge
+  cpus: 16
+  mem_gb: 180
+  time: "24:00:00"
+
+steering:
+  enabled_variants: [baseline, steered, mlp_gen, mlp_mc]
+
+evaluation:
+  preset: qa
+
+  judge:
+    mode: zero_shot
+    model: google/gemma-3-12b-it
+    max_new_tokens: 128
+    dtype: bfloat16
+    device_map: cuda:2  # Judge on third GPU
+
+  informativeness:
+    enabled: true
+    mode: zero_shot
+    model: google/gemma-3-12b-it
+    max_new_tokens: 128
+    dtype: bfloat16
+    device_map: cuda:2
+
+  semantic:
+    enabled: true
+    use_false_refs: true

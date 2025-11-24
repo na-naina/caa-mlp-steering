@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from contextlib import contextmanager
-from typing import Callable, Iterable, List
+from contextlib import contextmanager, nullcontext
+from typing import Callable, Iterable, List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -50,11 +50,15 @@ class ActivationExtractor:
         *,
         max_length: int = 512,
         batch_size: int = 8,
+        safe_attention: bool = False,
+        autocast_dtype: Optional[torch.dtype] = None,
     ) -> None:
         self.loaded = loaded
         self.layer_index = layer_index
         self.max_length = max_length
         self.batch_size = batch_size
+        self.safe_attention = safe_attention
+        self.autocast_dtype = autocast_dtype
 
         layers = _get_decoder_layers(self.loaded.model)
         if layer_index < 0 or layer_index >= len(layers):
@@ -81,8 +85,19 @@ class ActivationExtractor:
             )
             encoded = {k: v.to(self.loaded.primary_device) for k, v in encoded.items()}
             attention_mask = encoded.get("attention_mask")
-            # Disable autocast during extraction to prevent precision issues
-            with torch.no_grad(), torch.cuda.amp.autocast(enabled=False):
+            # Disable flash attention and optionally upcast compute to reduce fp16 overflows
+            autocast_enabled = self.autocast_dtype is not None
+            autocast_dtype = self.autocast_dtype if autocast_enabled else torch.float16
+            attn_ctx = (
+                torch.backends.cuda.sdp_kernel(
+                    enable_flash=False, enable_mem_efficient=False, enable_math=True
+                )
+                if self.safe_attention and torch.cuda.is_available()
+                else nullcontext()
+            )
+            with torch.no_grad(), attn_ctx, torch.cuda.amp.autocast(
+                enabled=autocast_enabled, dtype=autocast_dtype
+            ):
                 _ = self.loaded.model(**encoded)
 
         if not activations:

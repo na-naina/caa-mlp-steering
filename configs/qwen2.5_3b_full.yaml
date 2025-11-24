@@ -1,0 +1,37 @@
+model:
+  name: Qwen/Qwen2.5-3B
+  family: qwen2.5
+  layer: 24  # 36 total layers, extract from layer 24
+  dtype: bfloat16
+  device_map: cuda:0
+
+slurm:
+  gpus: 2  # Main model + judge
+  cpus: 10
+  mem_gb: 80
+  time: "12:00:00"
+
+steering:
+  enabled_variants: [baseline, steered, mlp_gen, mlp_mc]
+
+evaluation:
+  preset: qa
+
+  judge:
+    mode: zero_shot
+    model: google/gemma-3-12b-it
+    max_new_tokens: 128
+    dtype: bfloat16
+    device_map: cuda:1
+
+  informativeness:
+    enabled: true
+    mode: zero_shot
+    model: google/gemma-3-12b-it
+    max_new_tokens: 128
+    dtype: bfloat16
+    device_map: cuda:1
+
+  semantic:
+    enabled: true
+    use_false_refs: true
