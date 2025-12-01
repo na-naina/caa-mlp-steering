@@ -3,14 +3,13 @@ run:
   seed: 42
 
 paths:
-  output_root: analysis_results
+  output_root: outputs
   cache_root: cache
-  hf_cache: /springbrook/share/dcsresearch/u5584851/experiments/caa_gemma/cache/transformers
-  shared_env_script: /springbrook/share/dcsresearch/u5584851/caa_gemma/setup_env.sh
+  hf_cache: cache/transformers
 
 model:
-  name: google/gemma-2-2b
-  layer: 12
+  name: null  # Specify in model config
+  layer: null  # Specify in model config
   dtype: bfloat16
   device: auto
   device_map: auto

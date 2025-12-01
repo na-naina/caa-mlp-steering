@@ -1,0 +1,13 @@
+# Gemma 3 270M Instruction-Tuned
+model:
+  name: google/gemma-3-270m-it
+  layer: 8
+  family: gemma3
+
+slurm:
+  gpus: 1
+  mem_gb: 16
+
+evaluation:
+  judge:
+    model: google/gemma-3-270m-it

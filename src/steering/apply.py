@@ -46,7 +46,7 @@ def steering_hook(
 
     def hook(_module, _input, output):
         hidden = output[0] if isinstance(output, tuple) else output
-        steer = scale * vector.to(hidden.device)
+        steer = scale * vector.to(hidden.device, dtype=hidden.dtype)
         steer = steer.unsqueeze(0).unsqueeze(0)  # broadcast over batch and seq
         hidden = hidden + steer
         if isinstance(output, tuple):
@@ -58,4 +58,3 @@ def steering_hook(
         yield handle
     finally:
         handle.remove()
-

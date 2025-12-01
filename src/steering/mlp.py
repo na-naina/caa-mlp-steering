@@ -36,7 +36,14 @@ class SteeringMLP(nn.Module):
 
     def forward(self, vector: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
         centered = vector - vector.mean(dim=-1, keepdim=True)
-        return self.net(centered)
+        transformed = self.net(centered)
+
+        # Keep output magnitude comparable to the input steering vector to avoid
+        # blowing up residuals on large hidden sizes.
+        target_norm = vector.float().norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        out_norm = transformed.float().norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        scaled = transformed * (target_norm / out_norm).to(transformed.dtype)
+        return scaled
 
 
 @dataclass

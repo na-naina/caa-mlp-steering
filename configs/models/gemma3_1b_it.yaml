@@ -1,0 +1,13 @@
+# Gemma 3 1B Instruction-Tuned
+model:
+  name: google/gemma-3-1b-it
+  layer: 12
+  family: gemma3
+
+slurm:
+  gpus: 1
+  mem_gb: 32
+
+evaluation:
+  judge:
+    model: google/gemma-3-1b-it

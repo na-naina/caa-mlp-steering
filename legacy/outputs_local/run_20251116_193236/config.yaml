@@ -1,0 +1,104 @@
+run:
+  id: run_20251116_193236
+  seed: 42
+paths:
+  output_root: ./outputs_local
+  cache_root: ./cache_local
+  hf_cache: ./cache_local/transformers
+  shared_env_script: null
+model:
+  name: google/gemma-3-270m-it
+  layer: 8
+  dtype: bfloat16
+  device: auto
+  device_map: auto
+  revision: null
+steering:
+  max_length: 512
+  batch_size: 8
+  scales:
+  - 1.0
+  use_mlp: true
+  vector_bank:
+    num_vectors: 16
+    min_samples: 30
+    max_samples: 50
+mlp:
+  architecture:
+    hidden_multiplier: 2.0
+    dropout: 0.1
+  mc_training:
+    epochs: 1
+    steps_per_epoch: 50
+    batch_size: 8
+    margin: 1.0
+    lr: 1e-4
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 1e-2
+  gen_training:
+    epochs: 1
+    steps_per_epoch: 40
+    batch_size: 4
+    lr: 1e-4
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 1e-2
+truthfulqa:
+  dataset_name: truthful_qa
+  dataset_config: generation
+  cache_dir: cache/datasets
+  split:
+    steering_pool: 100
+    train: 250
+    val: 117
+    test: 200
+evaluation:
+  preset: qa
+  max_new_tokens: 80
+  temperature: 0.7
+  top_p: 0.9
+  top_k: 50
+  stop_sequences:
+  - '
+
+
+    '
+  - '
+
+    Question:'
+  judge:
+    mode: zero_shot
+    model: google/gemma-3-270m-it
+    max_new_tokens: 128
+    dtype: bfloat16
+    device_map: auto
+    finetuned_model: null
+    threshold: 0.5
+  informativeness:
+    enabled: true
+    mode: zero_shot
+    model: google/gemma-3-270m-it
+    max_new_tokens: 128
+    dtype: bfloat16
+    device_map: auto
+    finetuned_model: null
+    threshold: 0.5
+  semantic:
+    enabled: true
+    model: sentence-transformers/all-MiniLM-L6-v2
+    similarity_threshold: 0.6
+    use_false_refs: true
+  bleurt:
+    enabled: false
+    checkpoint: bleurt-base-128
+    cache_dir: cache/bleurt
+slurm:
+  partition: gpu
+  gpus: 1
+  cpus: 10
+  mem_gb: 80
+  time: '12:00:00'
+  qos: null
+  account: null
+base: configs/base.yaml

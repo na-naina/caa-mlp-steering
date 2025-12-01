@@ -1,80 +1,67 @@
-# Gemma TruthfulQA Steering Pipeline
+# CAA MLP Steering
 
-New pipeline for running Contrastive Activation Addition (CAA) experiments with optional MLP transformations on Gemma-2 and Gemma-3 model families.
+Contrastive Activation Addition with learned MLP transformations for steering LLM behavior on TruthfulQA.
 
-## Layout
+## Overview
 
-- `configs/` – base + per-model YAML configs (Gemma 2/3).
-- `src/` – modular Python package powering the current pipeline:
-  - `data.truthfulqa` – dataset sampling & split management.
-  - `steering.extract | steering.vector_bank | steering.training` – CAA extraction, vector bank, and MLP training.
-  - `evaluation.*` – MC + open-ended evaluation with semantic/LLM judges.
-  - `jobs.run_experiment` – single entrypoint for experiment orchestration.
-- `scripts/` – lightweight helper scripts (remote prep, submission helpers).
-- `slurm/` – curated SLURM job files (e.g., `slurm/smoke_gemma2.slurm`).
-- `analysis/` – placeholder for downstream analysis utilities.
-- `legacy/old_pipeline/` – archived scripts/configs from previous experiments. Keep for reference only; not invoked by the modern pipeline.
+1. **Extract** activation differences between truthful/untruthful responses
+2. **Train** two MLPs to transform the steering vector (supervised, no RL)
+3. **Evaluate** steered outputs using LLM judges
 
-## Local Dry Run (CPU)
+See [src/README.md](src/README.md) for detailed pipeline architecture.
 
-```bash
-python -m src.jobs.run_experiment \
-  --config configs/gemma3-1b.yaml \
-  --run-id local_test \
-  --no-mlp \
-  --dry-run  # remove this flag for a miniature execution
+## Structure
+
+```
+├── src/
+│   ├── steering/      # mlp.py, apply.py, extract.py, training.py
+│   ├── evaluation/    # TruthfulQA eval, LLM judges
+│   ├── models/        # Model loading
+│   └── data/          # Dataset management
+├── configs/
+│   ├── base.yaml      # Default settings
+│   └── models/        # Model-specific overrides
+├── outputs/           # Experiment results
+└── legacy/            # Archived old code/configs
 ```
 
-Remove `--dry-run` to execute; add `--scales 0 0.5` and override evaluation counts via `--override evaluation.mc_samples=10` etc for lightweight tests.
+## Usage
 
-## Remote Setup (Blythe)
-
-```bash
-./scripts/prepare_remote.sh csuqqj@blythe.scrtp.warwick.ac.uk /springbrook/share/dcsresearch/u5584851/caa_gemma
-```
-
-After syncing:
+### Local
 
 ```bash
-ssh -i blythe csuqqj@blythe.scrtp.warwick.ac.uk
-cd /springbrook/share/dcsresearch/u5584851/caa_gemma
 source venv/bin/activate
-export PYTHONPATH=$(pwd)
+python -m src.jobs.run_experiment --config configs/models/gemma3_4b_it.yaml
 ```
 
-Optional shared cache setup (once):
+### Remote (HPC)
 
 ```bash
-sbatch scripts/slurm/setup_cache.sh
+cd /springbrook/.../caa_steering/slurm
+./submit.sh gemma3_12b_it           # full pipeline
+./submit.sh gemma3_12b_it train     # extract + train + generate
+./submit.sh gemma3_12b_it eval      # judge existing outputs
 ```
 
-## Submitting Experiments
+## Model Configs
 
-1. Ensure `slurm/job_template.sh` references the correct remote project root.
-2. Submit a family sweep (dry run first):
+Model configs only override what differs from base:
 
-```bash
-python scripts/submit_family.py --family gemma2 --dry-run
-python scripts/submit_family.py --family gemma2 --project-root /springbrook/share/dcsresearch/u5584851/caa_gemma
+```yaml
+model:
+  name: google/gemma-3-12b-it
+  layer: 24
+
+slurm:
+  gpus: 1
+  mem_gb: 40
 ```
 
-Add `--scales` or `--no-mlp` for overrides. The script renders `slurm/tmp_*.sbatch`, submits via `sbatch`, and deletes temporary files.
+## Results
 
-Each job runs `python -m src.jobs.run_experiment`, storing outputs in `outputs/<run-id>/` with vectors, metadata, and per-scale results.
+Outputs saved to `outputs/<model>_<timestamp>/`:
 
-## Inspecting Results
-
-Results per run:
-
-- `outputs/<run-id>/config.yaml` – resolved configuration.
-- `outputs/<run-id>/vectors/` – base & MLP steering vectors.
-- `outputs/<run-id>/scale_<scale>/` – detailed MC + generation JSON logs.
-- `outputs/<run-id>/results.json` – aggregated metrics.
-
-Future work: add aggregation scripts under `analysis/` for cross-run comparisons.
-
-## Notes
-
-- Gemma-27B loads with `device_map="auto"` and assumes two GPUs; adjust `slurm/gemma*-27b.yaml` if cluster topology differs.
-- Judge defaults to `google/gemma-3-27b-it`; swap in `gemma-3-9b-it` on smaller nodes via `--override evaluation.judge_model=google/gemma-3-9b-it`.
-- `HF_TOKEN` is auto-populated when `~/.cache/huggingface/token` exists; ensure the token is present on Blythe.
+- `vectors/` - steering vectors + MLP weights
+- `training_history.json` - loss curves
+- `results.json` - evaluation metrics
+- `<variant>/scale_X.XX/` - generation details

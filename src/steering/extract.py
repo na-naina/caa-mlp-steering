@@ -67,7 +67,7 @@ class ActivationExtractor:
             )
         self.layer = layers[layer_index]
 
-    def _run_batch(self, texts: List[str]) -> torch.Tensor:
+    def _run_batch(self, texts: List[str], *, retry_with_safe: bool = False) -> torch.Tensor:
         activations: List[torch.Tensor] = []
         attention_mask: torch.Tensor | None = None
 
@@ -85,14 +85,17 @@ class ActivationExtractor:
             )
             encoded = {k: v.to(self.loaded.primary_device) for k, v in encoded.items()}
             attention_mask = encoded.get("attention_mask")
-            # Disable flash attention and optionally upcast compute to reduce fp16 overflows
-            autocast_enabled = self.autocast_dtype is not None
+            # Retry path disables flash attention + autocast to avoid NaN kernels
+            use_safe_attention = self.safe_attention or retry_with_safe
+            autocast_enabled = self.autocast_dtype is not None and not retry_with_safe
             autocast_dtype = self.autocast_dtype if autocast_enabled else torch.float16
             attn_ctx = (
                 torch.backends.cuda.sdp_kernel(
-                    enable_flash=False, enable_mem_efficient=False, enable_math=True
+                    enable_flash=not use_safe_attention,
+                    enable_mem_efficient=not use_safe_attention,
+                    enable_math=True,
                 )
-                if self.safe_attention and torch.cuda.is_available()
+                if torch.cuda.is_available()
                 else nullcontext()
             )
             with torch.no_grad(), attn_ctx, torch.cuda.amp.autocast(
@@ -109,6 +112,11 @@ class ActivationExtractor:
 
         # Check for NaN/Inf in raw activations
         if torch.isnan(hidden).any() or torch.isinf(hidden).any():
+            if not retry_with_safe:
+                logger.warning(
+                    "Invalid activations detected (NaN/Inf); retrying with flash attention disabled and autocast off"
+                )
+                return self._run_batch(texts, retry_with_safe=True)
             # Find which examples in the batch have issues
             for i, text in enumerate(texts):
                 example_acts = hidden[i]
