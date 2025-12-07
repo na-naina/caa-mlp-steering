@@ -10,17 +10,33 @@ paths:
 model:
   name: null  # Specify in model config
   layer: null  # Specify in model config
+  family: null  # Model family for output organization (gemma3, qwen, etc.)
   dtype: bfloat16
-  device: auto
   device_map: auto
   revision: null
+  # max_memory: null  # Optional: constrain GPU memory allocation
+
+# Stage-specific settings
+# Each stage has different resource requirements:
+#   extract:  Inference only, lower memory
+#   train:    Needs gradients, highest memory
+#   generate: Inference only
+#   score:    Separate judge model
 
 steering:
   max_length: 512
-  batch_size: 8
   scales: [1.0]
-  # enabled_variants: [baseline, steered, mlp_gen]  # Optional: control which variants to evaluate (default: all available)
   use_mlp: true
+  normalize_vector: false  # Keep original magnitude for proper steering effect
+  # enabled_variants: [baseline, steered, mlp_gen]  # Optional filter
+
+  # Extraction batch size (inference only - can be larger)
+  extract_batch_size: 8
+
+  # Options for numerical stability
+  safe_attention: false  # Disable flash attention for stability
+  autocast_dtype: null   # null, float16, or bfloat16
+
   vector_bank:
     num_vectors: 12
     min_samples: 30
@@ -30,21 +46,27 @@ mlp:
   architecture:
     hidden_multiplier: 2.0
     dropout: 0.1
+
+  # MC training (needs backward pass through model)
   mc_training:
     epochs: 2
     steps_per_epoch: 50
-    batch_size: 8
+    batch_size: 8  # Reduce if OOM during training
     margin: 1.0
     lr: 1.0e-4
     weight_decay: 0.0
     grad_clip: 1.0
+    mse_reg: 1.0e-2
+
+  # Generation training
   gen_training:
     epochs: 2
     steps_per_epoch: 40
-    batch_size: 4
+    batch_size: 4  # Reduce if OOM during training
     lr: 1.0e-4
     weight_decay: 0.0
     grad_clip: 1.0
+    mse_reg: 1.0e-2
 
 truthfulqa:
   dataset_name: truthful_qa
@@ -58,54 +80,46 @@ truthfulqa:
 
 evaluation:
   # Generation parameters
-  preset: qa  # TruthfulQA preset: 'qa', 'help', 'null', 'chat', 'long', 'harm'
-  max_new_tokens: 64  # Reduced from 80 to curb verbosity
-  temperature: 0.3  # Reduced from 0.7 for more focused answers
+  preset: qa  # TruthfulQA preset: 'qa', 'help', 'null', 'chat'
+  max_new_tokens: 64
+  temperature: 0.3
   top_p: 0.9
   top_k: 50
-  stop_sequences: ["\n\n", "\nQuestion:"]  # Stop at double newline or next question
+  stop_sequences: ["\n\n", "\nQuestion:"]
 
-  # Truthfulness judge
+  # Truthfulness judge (runs in score stage)
   judge:
-    mode: zero_shot  # 'zero_shot' or 'finetuned'
-    model: google/gemma-3-12b-it  # For zero-shot mode
-    max_new_tokens: 128  # With JSON failsafe repair logic
+    mode: zero_shot
+    model: google/gemma-3-12b-it
+    max_new_tokens: 128
     dtype: bfloat16
-    device_map: cuda:1  # Explicit GPU placement
-    # Fine-tuned model settings (used when mode=finetuned)
-    finetuned_model: null  # Path to fine-tuned model
-    threshold: 0.5  # Threshold for P(yes) in fine-tuned mode
+    device_map: auto  # Will use available GPU in score stage
 
   # Informativeness judge
   informativeness:
     enabled: true
-    mode: zero_shot  # 'zero_shot' or 'finetuned'
-    model: google/gemma-3-12b-it  # Can share with truthfulness judge
+    mode: zero_shot
+    model: google/gemma-3-12b-it  # Shares with truth judge
     max_new_tokens: 128
     dtype: bfloat16
-    device_map: cuda:1
-    # Fine-tuned model settings (used when mode=finetuned)
-    finetuned_model: null  # Path to fine-tuned model
-    threshold: 0.5
+    device_map: auto
 
-  # Semantic similarity with false reference comparison
+  # Semantic similarity (lightweight, CPU-friendly)
   semantic:
     enabled: true
     model: sentence-transformers/all-MiniLM-L6-v2
     similarity_threshold: 0.6
-    use_false_refs: true  # Enable TruthfulQA-style diff scoring
 
-  # BLEURT learned metric
+  # BLEURT (optional)
   bleurt:
-    enabled: false  # Set to true to enable (requires installation)
-    checkpoint: bleurt-base-128  # or 'bleurt-large-512'
+    enabled: false
+    checkpoint: bleurt-base-128
     cache_dir: cache/bleurt
 
+# SLURM defaults (can be overridden per model)
+# These are for the TRAIN stage which needs most resources
 slurm:
   partition: gpu
   gpus: 1
-  cpus: 10
-  mem_gb: 80
-  time: "12:00:00"
-  qos: null
-  account: null
+  mem_gb: 40
+  time: "06:00:00"

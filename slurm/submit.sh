@@ -24,6 +24,13 @@ TIME=$(grep -A5 '^slurm:' "$CONFIG_FILE" | grep 'time:' | awk '{print $2}' | tr 
 GPUS=${GPUS:-1}
 MEM=${MEM:-80}
 TIME=${TIME:-08:00:00}
+
+# Eval stage only needs 1 GPU (no backward pass)
+if [ "$STAGE" = "eval" ]; then
+    GPUS=1
+    MEM=40
+fi
+
 CPUS=$((GPUS * 10))
 JOB_NAME="caa_${MODEL}"
 

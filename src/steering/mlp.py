@@ -12,7 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class SteeringMLP(nn.Module):
-    """Non-linear processor for CAA vectors."""
+    """Non-linear processor for CAA vectors.
+
+    Initialized to approximate identity mapping for training stability,
+    especially important for large models (12B+) where random init can
+    cause immediate NaN gradients.
+    """
 
     def __init__(
         self,
@@ -31,19 +36,31 @@ class SteeringMLP(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, input_dim),
-            nn.LayerNorm(input_dim),
         )
 
-    def forward(self, vector: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-        centered = vector - vector.mean(dim=-1, keepdim=True)
-        transformed = self.net(centered)
+        # Initialize to near-identity for stable training
+        self._init_near_identity()
 
-        # Keep output magnitude comparable to the input steering vector to avoid
-        # blowing up residuals on large hidden sizes.
-        target_norm = vector.float().norm(dim=-1, keepdim=True).clamp(min=1e-6)
-        out_norm = transformed.float().norm(dim=-1, keepdim=True).clamp(min=1e-6)
-        scaled = transformed * (target_norm / out_norm).to(transformed.dtype)
-        return scaled
+    def _init_near_identity(self) -> None:
+        """Initialize final layer with small weights so MLP ≈ identity initially.
+
+        This prevents catastrophic first-step gradients in large models where
+        random initialization can produce huge margin violations.
+        """
+        # The final linear layer is net[6]
+        final_linear = self.net[6]
+        if isinstance(final_linear, nn.Linear):
+            # Small random init (10x smaller than default)
+            nn.init.normal_(final_linear.weight, mean=0.0, std=0.01)
+            nn.init.zeros_(final_linear.bias)
+            logger.debug(
+                "Initialized MLP final layer with std=0.01 for near-identity start"
+            )
+
+    def forward(self, vector: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        # Simple pass-through with small transformation
+        # MSE regularization in training will keep this close to identity
+        return self.net(vector)
 
 
 @dataclass

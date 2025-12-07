@@ -1,0 +1,51 @@
+# Rsync exclusions for syncing to remote HPC
+# Usage: rsync -av --exclude-from=.rsync-exclude ./ remote:/path/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Version control
+.git/
+.gitignore
+
+# Output directories (run-specific, don't sync)
+outputs/
+
+# Legacy/archive (contains large cached data)
+legacy/
+
+# Local cache directories
+cache/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Large model files (should use HF_HOME on remote)
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Logs (remote has its own)
+*.log
+logs/

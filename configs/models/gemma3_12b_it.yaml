@@ -1,14 +1,31 @@
 # Gemma 3 12B Instruction-Tuned
+#
+# KNOWN ISSUE: This model may produce zero-norm CAA vectors at certain layers.
+# The instruction-tuned version seems to produce similar activations for
+# positive/negative prompts. This is NOT a multi-GPU issue - it's model behavior.
+#
+# Potential solutions:
+#   1. Try different layers (earlier layers may differentiate better)
+#   2. Use more diverse/stronger contrastive prompts
+#   3. Use the pretrained version (gemma-3-12b-pt) instead
+
 model:
   name: google/gemma-3-12b-it
-  layer: 24
+  layer: 24  # May need adjustment - try 16, 20, or 28
   family: gemma3
+  dtype: bfloat16
 
+# Training stage needs more memory due to backward pass
+# Reduce batch sizes if OOM
+mlp:
+  mc_training:
+    batch_size: 4
+  gen_training:
+    batch_size: 2
+
+# SLURM resources for training stage
+# Extract/generate/score stages use less (handled by submit script)
 slurm:
-  gpus: 1
-  mem_gb: 40
+  gpus: 2  # 12B needs ~44GB for training backward pass
+  mem_gb: 80
   time: "08:00:00"
-
-evaluation:
-  judge:
-    model: google/gemma-3-12b-it

@@ -1,95 +1,145 @@
 # CAA MLP Steering
 
-Contrastive Activation Addition with learned MLP transformations for steering LLM behavior on TruthfulQA.
+Contrastive Activation Addition with learned MLP transformations for steering LLM truthfulness.
 
-## Overview
+## Pipeline
 
-1. **Extract** activation differences between truthful/untruthful responses
-2. **Train** two MLPs to transform the steering vector (supervised, no RL)
-3. **Evaluate** steered outputs using LLM judges
+4 independent stages, each with separate resource requirements:
 
-See [src/README.md](src/README.md) for detailed pipeline architecture.
+```
+EXTRACT ──> TRAIN ──> GENERATE ──> SCORE
+ 1 GPU      2 GPU      1 GPU       1 GPU
+```
+
+1. **Extract**: Get steering vectors from activation differences (inference)
+2. **Train**: Learn MLP transformations (needs gradients)
+3. **Generate**: Produce steered responses (inference)
+4. **Score**: Evaluate with 12B LLM judge (inference)
+
+See [src/README.md](src/README.md) for architecture details.
+
+## Quick Start
+
+### Local
+```bash
+source venv/bin/activate
+
+# Run stages individually
+python -m src.stages.extract --model gemma3_4b_it
+python -m src.stages.train --model gemma3_4b_it --run-id <from_extract>
+python -m src.stages.generate --model gemma3_4b_it --run-id <run_id>
+python -m src.stages.score --model gemma3_4b_it --run-id <run_id>
+
+# Analyze results
+python scripts/analyze_run.py --model gemma3_4b_it --latest
+```
+
+### Remote (SLURM)
+```bash
+cd /springbrook/share/dcsresearch/$USER/caa_steering
+
+# Full pipeline with job dependencies
+./slurm/submit_full.sh gemma3_4b_it
+
+# Or submit individual stages
+./slurm/submit_pipeline.sh gemma3_4b_it --only extract
+./slurm/submit_pipeline.sh gemma3_4b_it --from train --run-id <id>
+
+# Monitor
+squeue -u $USER
+tail -f logs/caa_gemma3_4b_it_*.err
+```
 
 ## Structure
 
 ```
 ├── src/
-│   ├── steering/      # mlp.py, apply.py, extract.py, training.py
-│   ├── evaluation/    # TruthfulQA eval, LLM judges
+│   ├── stages/        # Pipeline stages (extract, train, generate, score)
+│   ├── steering/      # Core steering (CAA extraction, MLP, hooks)
+│   ├── evaluation/    # LLM judges, semantic similarity
 │   ├── models/        # Model loading
-│   └── data/          # Dataset management
+│   └── data/          # TruthfulQA dataset
 ├── configs/
-│   ├── base.yaml      # Default settings
-│   └── models/        # Model-specific overrides
-├── outputs/           # Experiment results
-└── legacy/            # Archived old code/configs
+│   ├── base.yaml      # Defaults
+│   └── models/        # Model-specific (layer, batch sizes, SLURM resources)
+├── slurm/
+│   ├── submit_full.sh     # Full pipeline with dependencies
+│   └── submit_pipeline.sh # Flexible stage submission
+├── scripts/
+│   ├── analyze_run.py     # Results analysis
+│   └── probe_layers.py    # Debug layer selection
+└── outputs/               # Organized by family/model/timestamp
+    └── gemma3/
+        └── gemma3_12b_it/
+            └── 20251201_120000/
+                ├── vectors/      # Steering vectors, MLP weights
+                ├── responses/    # Generated text per variant
+                ├── scores/       # Judge evaluations
+                ├── metadata/     # Stage completion info
+                ├── checkpoints/  # Resumable progress
+                └── logs/         # Per-stage logs
 ```
 
-## Usage
+## Config
 
-### Local
-
-```bash
-source venv/bin/activate
-python -m src.jobs.run_experiment --config configs/models/gemma3_4b_it.yaml
-```
-
-### Remote (HPC)
-
-**First-time setup:**
-```bash
-ssh user@blythe.scrtp.warwick.ac.uk
-cd /springbrook/share/dcsresearch/$USER
-
-# Clone/sync project
-rsync -avz --exclude '.venv' --exclude 'outputs' local/caa-mlp-steering/ caa_steering/
-
-# Create venv
-cd caa_steering
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Ensure cache directories exist (avoid home quota issues)
-mkdir -p /springbrook/share/dcsresearch/$USER/hf_cache
-```
-
-**Submit jobs:**
-```bash
-cd /springbrook/share/dcsresearch/$USER/caa_steering/slurm
-./submit.sh gemma3_12b_it           # full pipeline
-./submit.sh gemma3_12b_it train     # extract + train + generate
-./submit.sh gemma3_12b_it eval      # judge existing outputs
-```
-
-**Monitor:**
-```bash
-squeue -u $USER                     # check queue
-sacct -u $USER --format=JobID,JobName,State,Elapsed  # job history
-cat logs/caa_gemma3_12b_it_*.err    # check errors
-```
-
-**Important:** HF cache is set to `$SHARE/hf_cache` in submit.sh to avoid home directory quota limits.
-
-## Model Configs
-
-Model configs only override what differs from base:
+Model configs override base defaults:
 
 ```yaml
+# configs/models/gemma3_12b_it.yaml
 model:
   name: google/gemma-3-12b-it
   layer: 24
+  family: gemma3
+
+mlp:
+  mc_training:
+    batch_size: 4  # Reduce for large models
+  gen_training:
+    batch_size: 2
 
 slurm:
-  gpus: 1
-  mem_gb: 40
+  gpus: 2  # For training stage
+  mem_gb: 80
 ```
 
-## Results
+## Checkpointing & Resume
 
-Outputs saved to `outputs/<model>_<timestamp>/`:
+Each stage saves progress incrementally, allowing interrupted jobs to resume:
 
-- `vectors/` - steering vectors + MLP weights
-- `training_history.json` - loss curves
-- `results.json` - evaluation metrics
-- `<variant>/scale_X.XX/` - generation details
+```bash
+# Resume an interrupted run (automatically skips completed work)
+python -m src.stages.generate --model gemma3_4b_it --run-id 20251201_120000
+
+# Force re-run (clears checkpoints)
+python -m src.stages.generate --model gemma3_4b_it --run-id 20251201_120000 --force
+```
+
+Checkpoint granularity:
+- **train**: After each MLP (MC, Gen) completes
+- **generate**: After each variant (baseline, steered, mlp_mc, mlp_gen)
+- **score**: After each variant is scored
+
+Progress is saved to `checkpoints/{stage}_progress.json`.
+
+## Debugging
+
+Each stage saves diagnostics:
+- `metadata/extract.json`: Vector norms, activation stats
+- `metadata/train.json`: Final losses, NaN detection
+- `logs/*.log`: Per-stage logs
+
+Check for zero-norm issues:
+```bash
+python scripts/analyze_run.py outputs/gemma3/gemma3_12b_it/20251201_*
+# Look for "diff_norm_pre_normalize" - if < 1e-6, pos/neg activations are identical
+```
+
+Probe layers to find best one:
+```bash
+python scripts/probe_layers.py --model google/gemma-3-12b-it --num-samples 30
+```
+
+Re-run failed stage:
+```bash
+python -m src.stages.train --model gemma3_4b_it --run-id <id> --force
+```

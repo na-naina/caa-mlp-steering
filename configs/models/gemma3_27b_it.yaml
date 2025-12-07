@@ -1,15 +1,30 @@
 # Gemma 3 27B Instruction-Tuned
+#
+# Large model requiring multi-GPU for both inference and training.
+# Same potential zero-norm issue as 12B-it (see that config for details).
+
 model:
   name: google/gemma-3-27b-it
-  layer: 32
+  layer: 32  # Middle layer of 64 total
   family: gemma3
+  dtype: bfloat16
+  # 27B (~54GB in bf16) needs multiple GPUs
+  # Let device_map=auto handle distribution
 
+# Training needs reduced batch sizes
+mlp:
+  mc_training:
+    batch_size: 2
+  gen_training:
+    batch_size: 1
+
+# SLURM resources for training stage
 slurm:
-  gpus: 1
-  mem_gb: 40
-  time: "08:00:00"
+  gpus: 3  # 27B needs ~54GB weights + gradients
+  mem_gb: 120
+  time: "12:00:00"
 
+# Use smaller judge for scoring stage
 evaluation:
   judge:
-    model: google/gemma-3-12b-it
-    device_map: cuda:2
+    model: google/gemma-3-4b-it  # Smaller judge to fit after model freed

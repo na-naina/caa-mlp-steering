@@ -13,17 +13,37 @@ logger = logging.getLogger(__name__)
 
 
 def _get_decoder_layers(model) -> list:
+    model_class = type(model).__name__
+    logger.info(f"Model class: {model_class}")
+
     # Standard text-only architecture (Gemma, Gemma2, Gemma3ForCausalLM, etc.)
     if hasattr(model, "model") and hasattr(model.model, "layers"):
+        inner_class = type(model.model).__name__
+        num_layers = len(model.model.layers)
+        logger.info(f"Using model.model.layers path (inner={inner_class}, layers={num_layers})")
         return model.model.layers
     # Multimodal architecture (Gemma3ForConditionalGeneration - 12B+)
-    # Has model.language_model.layers structure
+    # Has model.model.language_model.layers structure
     if hasattr(model, "model") and hasattr(model.model, "language_model"):
         if hasattr(model.model.language_model, "layers"):
+            inner_class = type(model.model).__name__
+            lm_class = type(model.model.language_model).__name__
+            num_layers = len(model.model.language_model.layers)
+            logger.info(f"Using model.model.language_model.layers path (inner={inner_class}, lm={lm_class}, layers={num_layers})")
             return model.model.language_model.layers
     # GPT-style architecture
     if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
+        logger.info("Using transformer.h path (GPT-style)")
         return model.transformer.h
+
+    # Debug: log what attributes we found
+    logger.error(f"Unsupported architecture. Model class: {model_class}")
+    logger.error(f"  hasattr(model, 'model'): {hasattr(model, 'model')}")
+    if hasattr(model, "model"):
+        logger.error(f"  model.model type: {type(model.model).__name__}")
+        logger.error(f"  hasattr(model.model, 'layers'): {hasattr(model.model, 'layers')}")
+        logger.error(f"  hasattr(model.model, 'language_model'): {hasattr(model.model, 'language_model')}")
+    logger.error(f"  hasattr(model, 'transformer'): {hasattr(model, 'transformer')}")
     raise ValueError("Unsupported model architecture for activation extraction")
 
 
@@ -70,10 +90,13 @@ class ActivationExtractor:
     def _run_batch(self, texts: List[str], *, retry_with_safe: bool = False) -> torch.Tensor:
         activations: List[torch.Tensor] = []
         attention_mask: torch.Tensor | None = None
+        hook_called_count = [0]  # Use list to allow modification in nested function
 
         def collect(hidden: torch.Tensor) -> None:
+            hook_called_count[0] += 1
             # Upcast to fp32 to avoid bfloat16 numerical issues
             activations.append(hidden.float())
+            logger.debug(f"Hook fired #{hook_called_count[0]}: shape={hidden.shape}, norm={hidden.float().norm():.4e}")
 
         with _activation_hook(self.layer, collect):
             encoded = self.loaded.tokenizer(
@@ -103,6 +126,7 @@ class ActivationExtractor:
             ):
                 _ = self.loaded.model(**encoded)
 
+        logger.debug(f"Forward pass complete: hook fired {hook_called_count[0]} times, captured {len(activations)} activations")
         if not activations:
             raise RuntimeError("Failed to capture activations for batch")
         if attention_mask is None:
@@ -135,6 +159,10 @@ class ActivationExtractor:
         token_counts = mask.sum(dim=1).clamp(min=1.0)
         masked_sum = (hidden * mask).sum(dim=1)
         mean_hidden = masked_sum / token_counts  # batch, hidden_dim
+
+        # Debug: log batch activation statistics
+        logger.debug(f"Batch activations: shape={hidden.shape}, mean_hidden_norm={mean_hidden.norm(dim=1).mean():.4e}")
+
         return mean_hidden.cpu()
 
     def collect_mean_activations(self, texts: Iterable[str]) -> tuple[torch.Tensor, list[int]]:
@@ -218,7 +246,19 @@ def compute_caa_vector(
         logger.error(f"Negative acts max: {activations_negative[~torch.isnan(activations_negative) & ~torch.isinf(activations_negative)].max().item():.4e}")
         raise ValueError("Negative activations contain NaN or Inf")
 
-    vector = activations_positive.mean(dim=0) - activations_negative.mean(dim=0)
+    # Debug: log activation statistics before computing difference
+    pos_mean = activations_positive.mean(dim=0)
+    neg_mean = activations_negative.mean(dim=0)
+    logger.debug(f"Positive acts: shape={activations_positive.shape}, mean_norm={pos_mean.norm():.4e}, range=[{pos_mean.min():.4e}, {pos_mean.max():.4e}]")
+    logger.debug(f"Negative acts: shape={activations_negative.shape}, mean_norm={neg_mean.norm():.4e}, range=[{neg_mean.min():.4e}, {neg_mean.max():.4e}]")
+
+    # Check if pos and neg are nearly identical
+    diff_norm = (pos_mean - neg_mean).norm()
+    logger.debug(f"Difference norm before mean: {diff_norm:.4e}")
+    if diff_norm < 1e-6:
+        logger.warning(f"Positive and negative activations are nearly identical (diff_norm={diff_norm:.4e})")
+
+    vector = pos_mean - neg_mean
 
     # Check for NaN/Inf before normalization
     if torch.isnan(vector).any() or torch.isinf(vector).any():
