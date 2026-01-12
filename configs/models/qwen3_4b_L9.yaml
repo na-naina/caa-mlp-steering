@@ -1,0 +1,10 @@
+# Qwen3 4B - Layer 9 (early, ~25% depth)
+model:
+  name: Qwen/Qwen3-4B
+  layer: 9
+  family: qwen3
+
+slurm:
+  gpus: 1
+  mem_gb: 40
+  time: "04:00:00"

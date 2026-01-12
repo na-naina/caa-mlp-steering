@@ -1,0 +1,10 @@
+# Qwen3 4B - Layer 27 (late, ~75% depth)
+model:
+  name: Qwen/Qwen3-4B
+  layer: 27
+  family: qwen3
+
+slurm:
+  gpus: 1
+  mem_gb: 40
+  time: "04:00:00"

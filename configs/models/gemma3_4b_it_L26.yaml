@@ -1,0 +1,9 @@
+# Gemma 3 4B - Layer 26 (late, ~75% depth)
+model:
+  name: google/gemma-3-4b-it
+  layer: 26
+  family: gemma3
+
+slurm:
+  gpus: 1
+  mem_gb: 48
