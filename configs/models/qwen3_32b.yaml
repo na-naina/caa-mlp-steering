@@ -4,6 +4,15 @@ model:
   layer: 32  # middle layer (64 total)
   family: qwen3
 
+# Training needs reduced batch sizes + gradient accumulation for 96GB GPU
+mlp:
+  mc_training:
+    batch_size: 1
+    gradient_accumulation_steps: 8
+  gen_training:
+    batch_size: 1
+    gradient_accumulation_steps: 4
+
 slurm:
   gpus: 2
   mem_gb: 80

@@ -28,6 +28,7 @@ class MCTrainingConfig:
     weight_decay: float = 0.0
     grad_clip: float = 1.0
     mse_reg: float = 1e-2  # MSE regularization to keep MLP close to identity
+    gradient_accumulation_steps: int = 1  # Accumulate gradients over N steps
 
 
 @dataclass
@@ -39,6 +40,7 @@ class GenTrainingConfig:
     weight_decay: float = 0.0
     grad_clip: float = 1.0
     mse_reg: float = 1e-2  # MSE regularization to keep MLP close to identity
+    gradient_accumulation_steps: int = 1  # Accumulate gradients over N steps
 
 
 def _select_mc_answers(dataset, item: dict) -> tuple[str, str] | None:
@@ -95,7 +97,15 @@ def train_mc_mlp(
     mlp.train()
     model.eval()
 
+    accum_steps = config.gradient_accumulation_steps
+
     for epoch in range(config.epochs):
+        optimizer.zero_grad()
+        accum_loss = 0.0
+        accum_margin = 0.0
+        accum_acc = 0.0
+        accum_count = 0
+
         for step in range(config.steps_per_epoch):
             batch_indices = rng.choice(
                 valid_indices,
@@ -124,8 +134,6 @@ def train_mc_mlp(
 
             vector = vector_bank.sample(rng).to(primary_device, dtype=param_dtype)
             transformed = mlp(vector.unsqueeze(0)).squeeze(0)
-
-            optimizer.zero_grad()
 
             with steering_hook(
                 model,
@@ -170,17 +178,34 @@ def train_mc_mlp(
             # Add MSE regularization: encourage MLP to stay close to identity
             mse_loss = F.mse_loss(transformed, vector)
             loss = hinge_loss + config.mse_reg * mse_loss
-            loss.backward()
 
-            if config.grad_clip:
-                torch.nn.utils.clip_grad_norm_(mlp.parameters(), config.grad_clip)
-            optimizer.step()
+            # Scale loss for gradient accumulation
+            scaled_loss = loss / accum_steps
+            scaled_loss.backward()
 
+            # Track metrics
             with torch.no_grad():
                 acc = (logprob_correct > logprob_incorrect).float().mean().item()
-                history_loss.append(loss.item())
-                history_margin.append(margin_values.mean().item())
-                history_accuracy.append(acc)
+                accum_loss += loss.item()
+                accum_margin += margin_values.mean().item()
+                accum_acc += acc
+                accum_count += 1
+
+            # Update weights every accum_steps or at end of epoch
+            if (step + 1) % accum_steps == 0 or (step + 1) == config.steps_per_epoch:
+                if config.grad_clip:
+                    torch.nn.utils.clip_grad_norm_(mlp.parameters(), config.grad_clip)
+                optimizer.step()
+                optimizer.zero_grad()
+
+                if accum_count > 0:
+                    history_loss.append(accum_loss / accum_count)
+                    history_margin.append(accum_margin / accum_count)
+                    history_accuracy.append(accum_acc / accum_count)
+                accum_loss = 0.0
+                accum_margin = 0.0
+                accum_acc = 0.0
+                accum_count = 0
 
         if history_loss:
             logger.info(
@@ -231,7 +256,13 @@ def train_gen_mlp(
     mlp.train()
     model.eval()
 
+    accum_steps = config.gradient_accumulation_steps
+
     for epoch in range(config.epochs):
+        optimizer.zero_grad()
+        accum_loss = 0.0
+        accum_count = 0
+
         for step in range(config.steps_per_epoch):
             batch_indices = rng.choice(
                 train_indices,
@@ -259,8 +290,6 @@ def train_gen_mlp(
             vector = vector_bank.sample(rng).to(primary_device, dtype=param_dtype)
             transformed = mlp(vector.unsqueeze(0)).squeeze(0)
 
-            optimizer.zero_grad()
-
             with steering_hook(
                 model,
                 layer_index,
@@ -287,13 +316,26 @@ def train_gen_mlp(
             # Add MSE regularization: encourage MLP to stay close to identity
             mse_loss = F.mse_loss(transformed, vector)
             loss = nll_loss + config.mse_reg * mse_loss
-            loss.backward()
 
-            if config.grad_clip:
-                torch.nn.utils.clip_grad_norm_(mlp.parameters(), config.grad_clip)
-            optimizer.step()
+            # Scale loss for gradient accumulation
+            scaled_loss = loss / accum_steps
+            scaled_loss.backward()
 
-            history_loss.append(loss.item())
+            # Track metrics
+            accum_loss += loss.item()
+            accum_count += 1
+
+            # Update weights every accum_steps or at end of epoch
+            if (step + 1) % accum_steps == 0 or (step + 1) == config.steps_per_epoch:
+                if config.grad_clip:
+                    torch.nn.utils.clip_grad_norm_(mlp.parameters(), config.grad_clip)
+                optimizer.step()
+                optimizer.zero_grad()
+
+                if accum_count > 0:
+                    history_loss.append(accum_loss / accum_count)
+                accum_loss = 0.0
+                accum_count = 0
 
         if history_loss:
             logger.info(

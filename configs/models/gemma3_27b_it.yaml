@@ -11,12 +11,14 @@ model:
   # 27B (~54GB in bf16) needs multiple GPUs
   # Let device_map=auto handle distribution
 
-# Training needs reduced batch sizes
+# Training needs reduced batch sizes + gradient accumulation for 96GB GPU
 mlp:
   mc_training:
-    batch_size: 2
+    batch_size: 1
+    gradient_accumulation_steps: 8  # effective batch = 8
   gen_training:
     batch_size: 1
+    gradient_accumulation_steps: 4  # effective batch = 4
 
 # SLURM resources for training stage
 slurm:
