@@ -43,6 +43,12 @@ slurm-*.out
 *.tmp
 .DS_Store
 
+# API keys
+openaikey.txt
+*.key
+.env
+.env.*
+
 # Model weights and results
 *.pt
 *.pth

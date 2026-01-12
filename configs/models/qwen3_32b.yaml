@@ -1,0 +1,10 @@
+# Qwen3 32B
+model:
+  name: Qwen/Qwen3-32B
+  layer: 32  # middle layer (64 total)
+  family: qwen3
+
+slurm:
+  gpus: 2
+  mem_gb: 80
+  time: "08:00:00"

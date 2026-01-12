@@ -1,0 +1,10 @@
+# Qwen3 4B
+model:
+  name: Qwen/Qwen3-4B
+  layer: 18  # middle layer (36 total)
+  family: qwen3
+
+slurm:
+  gpus: 1
+  mem_gb: 40
+  time: "04:00:00"
