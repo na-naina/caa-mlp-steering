@@ -3,7 +3,7 @@ run:
   seed: 42
 
 paths:
-  output_root: outputs
+  output_root: data/outputs
   cache_root: cache
   hf_cache: cache/transformers
 

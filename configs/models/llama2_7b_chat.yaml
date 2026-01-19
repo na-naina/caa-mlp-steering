@@ -1,0 +1,15 @@
+# Llama2-7B-chat - For comparison with RaLFiT paper (ACL 2025)
+# Model: meta-llama/Llama-2-7b-chat-hf
+# Architecture: 32 layers, 4096 hidden dim
+# NOTE: Requires HuggingFace authentication (gated model)
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 16  # middle layer (32 total)
+  family: llama2
+
+# Llama2-7B-chat ~14GB in bf16, fits on single 24GB GPU
+slurm:
+  gpus: 1
+  mem_gb: 40
+  time: "04:00:00"
