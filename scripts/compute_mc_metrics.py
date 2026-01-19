@@ -133,16 +133,15 @@ def evaluate_model_mc(
     steering_vector: Optional[torch.Tensor] = None,
     scale: float = 0.0,
     layer_index: int = 16,
-    max_samples: int = 817,  # Full TruthfulQA
 ) -> Dict:
-    """Evaluate MC1 and MC2 on TruthfulQA."""
+    """Evaluate MC1 and MC2 on TruthfulQA test set."""
     from src.steering.apply import steering_hook
 
     mc1_results = []
     mc2_results = []
     details = []
 
-    questions = list(mc_lookup.keys())[:max_samples]
+    questions = list(mc_lookup.keys())
 
     with steering_hook(model, layer_index, steering_vector, scale=scale):
         for question_key in tqdm(questions, desc="Evaluating MC"):
@@ -197,7 +196,6 @@ def main():
     parser = argparse.ArgumentParser(description="Compute MC1/MC2 metrics")
     parser.add_argument("--model", required=True, help="Model config name")
     parser.add_argument("--run-dir", type=Path, help="Existing run directory")
-    parser.add_argument("--max-samples", type=int, default=200, help="Max samples to evaluate")
     parser.add_argument("--layer", type=int, help="Override layer index")
     args = parser.parse_args()
 
@@ -220,12 +218,7 @@ def main():
 
     layer_index = args.layer or config["model"]["layer"]
 
-    # Load MC dataset
-    LOG.info("Loading TruthfulQA MC dataset...")
-    mc_lookup = load_mc_dataset()
-    LOG.info("Loaded %d MC questions", len(mc_lookup))
-
-    # Determine what to evaluate
+    # Determine run directory
     if args.run_dir:
         run_dir = args.run_dir
     else:
@@ -237,6 +230,38 @@ def main():
         run_dir = matching[-1]
 
     LOG.info("Using run directory: %s", run_dir)
+
+    # Load test split indices from the run (to avoid data leakage)
+    splits_file = run_dir / "metadata" / "splits.json"
+    if not splits_file.exists():
+        LOG.error("Splits file not found: %s", splits_file)
+        LOG.error("Run the main pipeline first to generate splits")
+        return 1
+
+    with open(splits_file) as f:
+        splits = json.load(f)
+    test_indices = set(splits["test"])
+    LOG.info("Using %d test indices from splits.json (avoiding train data leakage)", len(test_indices))
+
+    # Load TruthfulQA generation dataset to get questions by index
+    from datasets import load_dataset
+    gen_dataset = load_dataset("truthful_qa", "generation", cache_dir="cache/datasets")["validation"]
+
+    # Load MC dataset
+    LOG.info("Loading TruthfulQA MC dataset...")
+    mc_lookup = load_mc_dataset()
+    LOG.info("Loaded %d MC questions", len(mc_lookup))
+
+    # Filter to only test set questions
+    test_questions = {}
+    for idx in test_indices:
+        question = gen_dataset[idx]["question"].strip().lower()
+        if question in mc_lookup:
+            test_questions[question] = mc_lookup[question]
+    LOG.info("Found %d test questions with MC targets", len(test_questions))
+
+    # Use filtered lookup
+    mc_lookup = test_questions
 
     # Load steering vectors if available
     vectors_dir = run_dir / "vectors"
@@ -287,7 +312,7 @@ def main():
         results = evaluate_model_mc(
             model, tokenizer, device, mc_lookup,
             steering_vector=vector, scale=scale,
-            layer_index=layer_index, max_samples=args.max_samples,
+            layer_index=layer_index,
         )
 
         LOG.info("MC1 Accuracy: %.2f%%", results["mc1_accuracy"] * 100)
