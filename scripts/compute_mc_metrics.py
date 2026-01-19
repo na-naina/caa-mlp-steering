@@ -178,9 +178,9 @@ def evaluate_model_mc(
                 "choices": choices,
                 "mc1_labels": mc1_labels,
                 "mc2_labels": mc2_labels,
-                "logprobs": logprobs,
-                "mc1_correct": mc1_correct,
-                "mc2_score": mc2_score,
+                "logprobs": [float(lp) for lp in logprobs],
+                "mc1_correct": bool(mc1_correct),
+                "mc2_score": float(mc2_score),
             })
 
     return {
