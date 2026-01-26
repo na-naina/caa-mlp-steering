@@ -43,6 +43,8 @@ def parse_args():
     p.add_argument("--stage", choices=["all", "train", "eval", "extract"], default="all",
                    help="Pipeline stage: all (default), train (extract+train+generate), eval (judge only), extract (vectors only)")
     p.add_argument("--run-dir", type=Path, help="Resume from existing run directory (for eval stage)")
+    p.add_argument("--splits-file", type=Path, help="Custom splits JSON file (for 2-fold CV)")
+    p.add_argument("--output-dir", type=Path, help="Custom output directory")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--verbose", action="store_true")
     return p.parse_args()
@@ -72,10 +74,10 @@ def create_run_dir(config: Dict, model_name: str) -> Path:
     return run_dir
 
 
-def stage_extract(config: Dict, run_dir: Path) -> Dict:
+def stage_extract(config: Dict, run_dir: Path, splits_file: Optional[Path] = None) -> Dict:
     """Stage 1: Load model, extract activations, compute steering vectors."""
     LOG.info("=== STAGE: EXTRACT ===")
-    
+
     model_cfg = config["model"]
     loaded = load_causal_model(
         model_cfg["name"],
@@ -84,7 +86,7 @@ def stage_extract(config: Dict, run_dir: Path) -> Dict:
     )
     model, tokenizer, device = loaded.model, loaded.tokenizer, loaded.primary_device
     model.eval()
-    
+
     # Load dataset
     tqa_cfg = config.get("truthfulqa", {})
     dataset = TruthfulQADatasetManager(
@@ -93,14 +95,29 @@ def stage_extract(config: Dict, run_dir: Path) -> Dict:
         cache_dir=tqa_cfg.get("cache_dir"),
         seed=config.get("run", {}).get("seed", 42),
     )
-    
-    split_cfg = tqa_cfg.get("split", {})
-    splits = dataset.create_pipeline_splits(
-        steering_pool_size=split_cfg.get("steering_pool", 100),
-        train_size=split_cfg.get("train", 250),
-        val_size=split_cfg.get("val", 117),
-        test_size=split_cfg.get("test", 200),
-    )
+
+    # Load splits from file or create new ones
+    if splits_file and splits_file.exists():
+        LOG.info("Loading splits from: %s", splits_file)
+        with splits_file.open() as f:
+            splits_dict = json.load(f)
+        from src.data.truthfulqa import TruthfulQAPipelineSplits
+        splits = TruthfulQAPipelineSplits(
+            steering_pool=splits_dict["steering_pool"],
+            train=splits_dict["train"],
+            val=splits_dict["val"],
+            test=splits_dict["test"],
+        )
+        LOG.info("Loaded splits: steering_pool=%d, train=%d, val=%d, test=%d",
+                 len(splits.steering_pool), len(splits.train), len(splits.val), len(splits.test))
+    else:
+        split_cfg = tqa_cfg.get("split", {})
+        splits = dataset.create_pipeline_splits(
+            steering_pool_size=split_cfg.get("steering_pool", 100),
+            train_size=split_cfg.get("train", 250),
+            val_size=split_cfg.get("val", 117),
+            test_size=split_cfg.get("test", 200),
+        )
     
     # Save splits
     (run_dir / "metadata").mkdir(exist_ok=True)
@@ -337,6 +354,9 @@ def main():
         if not run_dir.exists():
             LOG.error("Run directory not found: %s", run_dir)
             return 1
+    elif args.output_dir:
+        run_dir = args.output_dir
+        run_dir.mkdir(parents=True, exist_ok=True)
     else:
         run_dir = create_run_dir(config, args.model)
     
@@ -345,7 +365,7 @@ def main():
     
     # Execute stages
     if args.stage in ["all", "train", "extract"]:
-        ctx = stage_extract(config, run_dir)
+        ctx = stage_extract(config, run_dir, splits_file=args.splits_file)
         
         if args.stage in ["all", "train"]:
             ctx = stage_train(config, run_dir, ctx)
