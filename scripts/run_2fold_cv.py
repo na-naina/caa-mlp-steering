@@ -49,10 +49,10 @@ def create_fold_config(fold_name: str, train_indices: list, test_indices: list, 
     # Within training set, allocate to steering_pool, train, val
     n_train = len(train_indices)
 
-    # Similar proportions to original but adapted for ~408 training examples
-    steering_pool_size = 80
-    train_size = 250
-    val_size = n_train - steering_pool_size - train_size  # ~78
+    # Allocate ~408 training examples: 50 steering, 200 train, 158 val
+    steering_pool_size = 50
+    train_size = 200
+    val_size = n_train - steering_pool_size - train_size  # ~158
 
     splits = {
         "steering_pool": train_indices[:steering_pool_size],
