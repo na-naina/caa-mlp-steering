@@ -15,7 +15,7 @@ mlp:
   mc_training:
     epochs: 2
     steps_per_epoch: 50
-    batch_size: 2  # Reduced from 8 for 24GB GPU
+    batch_size: 8
     margin: 1.0
     lr: 1.0e-5  # 10x lower than default (was 1e-4)
     weight_decay: 0.0
@@ -26,7 +26,7 @@ mlp:
   gen_training:
     epochs: 2
     steps_per_epoch: 40
-    batch_size: 1  # Reduced from 4 for 24GB GPU
+    batch_size: 4
     lr: 1.0e-5  # 10x lower than default (was 1e-4)
     weight_decay: 0.0
     grad_clip: 1.0
