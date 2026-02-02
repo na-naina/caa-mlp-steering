@@ -1,0 +1,33 @@
+# Llama2-7B-chat with lower learning rate to reduce overfitting
+# Key change: LR reduced 10x from 1e-4 to 1e-5
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 16
+  family: llama2
+
+mlp:
+  architecture:
+    hidden_multiplier: 2.0
+    dropout: 0.1
+
+  # MC training - much lower LR
+  mc_training:
+    epochs: 2
+    steps_per_epoch: 50
+    batch_size: 8
+    margin: 1.0
+    lr: 1.0e-5  # 10x lower than default (was 1e-4)
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 1.0e-2
+
+  # Generation training - much lower LR
+  gen_training:
+    epochs: 2
+    steps_per_epoch: 40
+    batch_size: 4
+    lr: 1.0e-5  # 10x lower than default (was 1e-4)
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 1.0e-2
