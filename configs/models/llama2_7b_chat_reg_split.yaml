@@ -1,0 +1,34 @@
+# Llama2-7B-chat with split learning rates
+# MC: 5e-5 (middle ground)
+# Gen: 1e-6 (much lower to prevent overshoot)
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 16
+  family: llama2
+
+mlp:
+  architecture:
+    hidden_multiplier: 2.0
+    dropout: 0.1
+
+  # MC training - 5x lower LR (works reasonably)
+  mc_training:
+    epochs: 2
+    steps_per_epoch: 50
+    batch_size: 8
+    margin: 1.0
+    lr: 5.0e-5
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 1.0e-2
+
+  # Generation training - much lower LR to prevent overshoot
+  gen_training:
+    epochs: 2
+    steps_per_epoch: 40
+    batch_size: 4
+    lr: 1.0e-6  # 100x lower than default - very conservative
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 1.0e-2
