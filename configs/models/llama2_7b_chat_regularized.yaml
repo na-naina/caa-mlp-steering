@@ -1,6 +1,9 @@
 # Llama2-7B-chat with lower learning rate to reduce overfitting
 # Key change: LR reduced 10x from 1e-4 to 1e-5
 
+steering:
+  enabled_variants: [mlp_mc, mlp_gen]  # Skip baseline/steered (same across runs)
+
 model:
   name: meta-llama/Llama-2-7b-chat-hf
   layer: 16

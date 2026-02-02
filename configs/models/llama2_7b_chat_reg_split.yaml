@@ -2,6 +2,9 @@
 # MC: 5e-5 (middle ground)
 # Gen: 1e-6 (much lower to prevent overshoot)
 
+steering:
+  enabled_variants: [mlp_mc, mlp_gen]  # Skip baseline/steered (same across runs)
+
 model:
   name: meta-llama/Llama-2-7b-chat-hf
   layer: 16

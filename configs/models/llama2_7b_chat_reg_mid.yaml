@@ -1,6 +1,9 @@
 # Llama2-7B-chat with medium learning rate (5x lower than default)
 # Middle ground between 1e-4 (overfits) and 1e-5 (too slow)
 
+steering:
+  enabled_variants: [mlp_mc, mlp_gen]  # Skip baseline/steered (same across runs)
+
 model:
   name: meta-llama/Llama-2-7b-chat-hf
   layer: 16

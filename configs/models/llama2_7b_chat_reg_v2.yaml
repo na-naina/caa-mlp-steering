@@ -2,6 +2,9 @@
 # MC: 2e-5 (between 1e-5 too slow and 5e-5 overfits)
 # Gen: stronger MSE regularization to keep closer to identity
 
+steering:
+  enabled_variants: [mlp_mc, mlp_gen]  # Skip baseline/steered (same across runs)
+
 model:
   name: meta-llama/Llama-2-7b-chat-hf
   layer: 16

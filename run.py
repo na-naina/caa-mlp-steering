@@ -264,6 +264,12 @@ def _generate_all_responses(config, run_dir, model, tokenizer, device, dataset, 
         "mlp_gen": mlp_gen(base.unsqueeze(0)).squeeze(0).detach() if mlp_gen else None,
     }
     variants = {k: v for k, v in variants.items() if v is not None or k == "baseline"}
+
+    # Filter to enabled variants if specified
+    enabled = steering_cfg.get("enabled_variants")
+    if enabled:
+        variants = {k: v for k, v in variants.items() if k in enabled}
+        LOG.info("Enabled variants: %s", list(variants.keys()))
     
     results = {}
     for name, vector in variants.items():
