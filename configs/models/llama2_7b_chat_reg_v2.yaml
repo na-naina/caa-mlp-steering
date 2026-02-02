@@ -1,0 +1,34 @@
+# Llama2-7B-chat - addressing both MC overfitting and Gen instability
+# MC: 2e-5 (between 1e-5 too slow and 5e-5 overfits)
+# Gen: stronger MSE regularization to keep closer to identity
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 16
+  family: llama2
+
+mlp:
+  architecture:
+    hidden_multiplier: 2.0
+    dropout: 0.1
+
+  # MC training - find the sweet spot
+  mc_training:
+    epochs: 2
+    steps_per_epoch: 50
+    batch_size: 8
+    margin: 1.0
+    lr: 2.0e-5  # Between 1e-5 (50% acc) and 5e-5 (100% acc)
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 1.0e-2
+
+  # Generation training - stronger regularization
+  gen_training:
+    epochs: 2
+    steps_per_epoch: 40
+    batch_size: 4
+    lr: 5.0e-5
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 1.0e-1  # 10x stronger regularization - keep closer to identity
