@@ -439,10 +439,11 @@ def show_results():
 
                         stats = data["stats"]
                         trunc_pct = 100 * stats.get('truncation_rate', 0)
-                        t_and_i = 100 * stats.get('truth_and_info_accuracy', 0)
+                        # T*I as product of percentages (matching RaLFiT methodology)
+                        t_times_i = 100 * stats['truth_accuracy'] * stats['info_accuracy']
 
                         results_text.append(f"  {condition}/{scale_dir.name}:")
-                        results_text.append(f"    Truth: {100*stats['truth_accuracy']:.1f}% | Info: {100*stats['info_accuracy']:.1f}% | T+I: {t_and_i:.1f}% | Trunc: {trunc_pct:.0f}%")
+                        results_text.append(f"    Truth: {100*stats['truth_accuracy']:.1f}% | Info: {100*stats['info_accuracy']:.1f}% | T*I: {t_times_i:.1f}% | Trunc: {trunc_pct:.0f}%")
 
                         all_results.append({
                             "model": display_name,
@@ -460,17 +461,15 @@ def show_results():
     if all_results:
         # Summary table
         print("\n" + "="*80)
-        print("SUMMARY TABLE")
+        print("SUMMARY TABLE (T*I = Truth% × Info%, matching RaLFiT)")
         print("="*80)
-        print(f"{'Model':<20} {'Condition':<12} {'Truth%':>8} {'Info%':>8} {'T+I%':>8} {'Trunc%':>8}")
+        print(f"{'Model':<30} {'Condition':<12} {'Truth%':>8} {'Info%':>8} {'T*I%':>8}")
         print("-"*80)
         for r in all_results:
-            # Extract model name more cleanly
-            parts = r['model'].split('_')
-            model_short = f"{parts[0]}_{parts[1]}"
-            trunc = 100 * r.get('truncation_rate', 0)
-            t_and_i = 100 * r.get('truth_and_info_accuracy', 0)
-            print(f"{model_short:<20} {r['condition']:<12} {100*r['truth_accuracy']:>7.1f}% {100*r['info_accuracy']:>7.1f}% {t_and_i:>7.1f}% {trunc:>7.0f}%")
+            model_short = r['model']
+            # T*I as product of percentages (matching RaLFiT methodology)
+            t_times_i = 100 * r['truth_accuracy'] * r['info_accuracy']
+            print(f"{model_short:<30} {r['condition']:<12} {100*r['truth_accuracy']:>7.1f}% {100*r['info_accuracy']:>7.1f}% {t_times_i:>7.1f}%")
 
 
 def main():
