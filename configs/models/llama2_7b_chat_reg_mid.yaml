@@ -1,0 +1,33 @@
+# Llama2-7B-chat with medium learning rate (5x lower than default)
+# Middle ground between 1e-4 (overfits) and 1e-5 (too slow)
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 16
+  family: llama2
+
+mlp:
+  architecture:
+    hidden_multiplier: 2.0
+    dropout: 0.1
+
+  # MC training - 5x lower LR
+  mc_training:
+    epochs: 2
+    steps_per_epoch: 50
+    batch_size: 8
+    margin: 1.0
+    lr: 5.0e-5  # 5x lower than default (was 1e-4)
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 1.0e-2
+
+  # Generation training - 5x lower LR
+  gen_training:
+    epochs: 2
+    steps_per_epoch: 40
+    batch_size: 4
+    lr: 5.0e-5  # 5x lower than default (was 1e-4)
+    weight_decay: 0.0
+    grad_clip: 1.0
+    mse_reg: 1.0e-2
