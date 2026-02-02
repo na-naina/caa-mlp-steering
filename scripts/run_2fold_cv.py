@@ -87,6 +87,7 @@ def run_fold(model: str, fold_name: str, splits_file: Path, output_dir: Path):
         "--model", model,
         "--splits-file", str(splits_file),
         "--output-dir", str(output_dir),
+        "--stage", "train",  # Only extract + train + generate, skip eval
     ]
 
     print(f"Command: {' '.join(cmd)}")
