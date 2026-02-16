@@ -465,8 +465,8 @@ def run_phase1(
     # GPT-judge on generation (a different metric), so selecting
     # on MC accuracy here does not bias the final evaluation.
     mc_test_indices = [i for i in splits["test"] if dataset.is_valid_mc(i)]
-    eeval_items = dataset.get_items(mc_test_indices)
-    LOG.info("MC screening set (test): %d items", len(eeval_items))
+    eval_items = dataset.get_items(mc_test_indices)
+    LOG.info("MC screening set (test): %d items", len(eval_items))
 
     # Load model ONCE
     model_cfg = base_config["model"]
