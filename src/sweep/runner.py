@@ -169,7 +169,7 @@ def run_hp_combo(
     loaded: LoadedModel,
     dataset: TruthfulQADatasetManager,
     train_indices: List[int],
-    test_items: List[dict],
+    val_items: List[dict],
     vector_bank: VectorBank,
     layer: int,
     lr: float,
@@ -177,7 +177,7 @@ def run_hp_combo(
     sweep_dir: Path,
     config: dict,
 ) -> Dict[str, Any]:
-    """Train MC+Gen MLPs with specific HPs, then run MC evaluation."""
+    """Train MC+Gen MLPs with specific HPs, then run MC evaluation on val set."""
     cid = combo_dir_name(lr, mse_reg)
     combo_dir = sweep_dir / "results" / f"layer_{layer:02d}" / cid
     combo_dir.mkdir(parents=True, exist_ok=True)
@@ -308,7 +308,7 @@ def run_hp_combo(
         mc_result = evaluate_multiple_choice(
             loaded.model,
             loaded.tokenizer,
-            test_items,
+            val_items,
             layer_index=layer,
             steering_vector=mc_vector,
             scale=1.0,
@@ -328,7 +328,7 @@ def run_hp_combo(
         gen_mc_result = evaluate_multiple_choice(
             loaded.model,
             loaded.tokenizer,
-            test_items,
+            val_items,
             layer_index=layer,
             steering_vector=gen_vector,
             scale=1.0,
@@ -355,7 +355,7 @@ def run_hp_combo(
 
 def _eval_baselines(
     loaded: LoadedModel,
-    test_items: List[dict],
+    val_items: List[dict],
     layer: int,
     base_vector: torch.Tensor,
     device: torch.device,
@@ -368,7 +368,7 @@ def _eval_baselines(
     bl = evaluate_multiple_choice(
         loaded.model,
         loaded.tokenizer,
-        test_items,
+        val_items,
         layer_index=layer,
         steering_vector=None,
         scale=0.0,
@@ -385,7 +385,7 @@ def _eval_baselines(
     st = evaluate_multiple_choice(
         loaded.model,
         loaded.tokenizer,
-        test_items,
+        val_items,
         layer_index=layer,
         steering_vector=base_vector.to(device),
         scale=1.0,
@@ -457,9 +457,11 @@ def run_phase1(
             json.dump(splits, f, indent=2)
 
     # Test items for MC evaluation
-    mc_test_indices = [i for i in splits["test"] if dataset.is_valid_mc(i)]
-    test_items = dataset.get_items(mc_test_indices)
-    LOG.info("MC evaluation set: %d items", len(test_items))
+    # Phase 1 screens on val to avoid optimizer's curse;
+    # Phase 2 evaluates on held-out test for unbiased estimates.
+    mc_val_indices = [i for i in splits["val"] if dataset.is_valid_mc(i)]
+    val_items = dataset.get_items(mc_val_indices)
+    LOG.info("Phase 1 MC screening set (val): %d items", len(val_items))
 
     # Load model ONCE
     model_cfg = base_config["model"]
@@ -496,7 +498,7 @@ def run_phase1(
         # -- Baselines (once per layer) --
         base_vec = vector_bank.base_vector.to(device, dtype=param_dtype)
         baselines = _eval_baselines(
-            loaded, test_items, layer, base_vec, device, seed,
+            loaded, val_items, layer, base_vec, device, seed,
         )
         bl_dir = sweep_dir / "results" / f"layer_{layer:02d}"
         bl_dir.mkdir(parents=True, exist_ok=True)
@@ -530,7 +532,7 @@ def run_phase1(
             )
 
             res = run_hp_combo(
-                loaded, dataset, splits["train"], test_items,
+                loaded, dataset, splits["train"], val_items,
                 vector_bank, layer, combo["lr"], combo["mse_reg"],
                 sweep_dir, base_config,
             )
