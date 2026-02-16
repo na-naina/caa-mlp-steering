@@ -1,0 +1,23 @@
+# Llama2-7B-chat - Layer 8, bottleneck=16, lr=5e-4
+# Best sweep config: 59.3% test MC accuracy (baseline 47.8%)
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 8
+  family: llama2
+
+mlp:
+  architecture:
+    bottleneck_dim: 16
+  mc_training:
+    lr: 5.0e-4
+  gen_training:
+    lr: 5.0e-4
+
+steering:
+  enabled_variants: [baseline, mlp_mc]
+
+slurm:
+  gpus: 1
+  mem_gb: 40
+  time: "04:00:00"

@@ -105,18 +105,18 @@ def stage_extract(config: Dict, run_dir: Path, splits_file: Optional[Path] = Non
         splits = TruthfulQAPipelineSplits(
             steering_pool=splits_dict["steering_pool"],
             train=splits_dict["train"],
-            val=splits_dict["val"],
             test=splits_dict["test"],
+            val=splits_dict.get("val", []),
         )
-        LOG.info("Loaded splits: steering_pool=%d, train=%d, val=%d, test=%d",
-                 len(splits.steering_pool), len(splits.train), len(splits.val), len(splits.test))
+        LOG.info("Loaded splits: steering_pool=%d, train=%d, test=%d",
+                 len(splits.steering_pool), len(splits.train), len(splits.test))
     else:
         split_cfg = tqa_cfg.get("split", {})
         splits = dataset.create_pipeline_splits(
             steering_pool_size=split_cfg.get("steering_pool", 100),
-            train_size=split_cfg.get("train", 250),
-            val_size=split_cfg.get("val", 117),
-            test_size=split_cfg.get("test", 200),
+            train_size=split_cfg.get("train", 309),
+            val_size=split_cfg.get("val", 0),
+            test_size=split_cfg.get("test", 0),
         )
     
     # Save splits
@@ -187,16 +187,19 @@ def stage_train(config: Dict, run_dir: Path, ctx: Dict) -> Dict:
     arch_cfg = mlp_cfg.get("architecture", {})
     
     # Create MLPs
+    bn_dim = arch_cfg.get("bottleneck_dim")
     mlp_mc = SteeringMLP(
         input_dim=hidden_dim,
         hidden_multiplier=arch_cfg.get("hidden_multiplier", 2.0),
         dropout=arch_cfg.get("dropout", 0.1),
+        bottleneck_dim=bn_dim,
     ).to(device, dtype=param_dtype)
-    
+
     mlp_gen = SteeringMLP(
         input_dim=hidden_dim,
         hidden_multiplier=arch_cfg.get("hidden_multiplier", 2.0),
         dropout=arch_cfg.get("dropout", 0.1),
+        bottleneck_dim=bn_dim,
     ).to(device, dtype=param_dtype)
     
     # Train MC MLP

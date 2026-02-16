@@ -58,10 +58,12 @@ def load_steering_vectors(ctx: RunContext, device: torch.device, dtype: torch.dt
 
         # Load MLP variants if available
         hidden_dim = base.shape[0]
+        arch_cfg = ctx.config.get("mlp", {}).get("architecture", {})
+        bn_dim = arch_cfg.get("bottleneck_dim")
 
         mc_path = ctx.vectors_dir / "mlp_mc_state_dict.pt"
         if mc_path.exists():
-            mlp = SteeringMLP(input_dim=hidden_dim).to(device, dtype=dtype)
+            mlp = SteeringMLP(input_dim=hidden_dim, bottleneck_dim=bn_dim).to(device, dtype=dtype)
             mlp.load_state_dict(torch.load(mc_path))
             mlp.eval()
             with torch.no_grad():
@@ -69,7 +71,7 @@ def load_steering_vectors(ctx: RunContext, device: torch.device, dtype: torch.dt
 
         gen_path = ctx.vectors_dir / "mlp_gen_state_dict.pt"
         if gen_path.exists():
-            mlp = SteeringMLP(input_dim=hidden_dim).to(device, dtype=dtype)
+            mlp = SteeringMLP(input_dim=hidden_dim, bottleneck_dim=bn_dim).to(device, dtype=dtype)
             mlp.load_state_dict(torch.load(gen_path))
             mlp.eval()
             with torch.no_grad():
