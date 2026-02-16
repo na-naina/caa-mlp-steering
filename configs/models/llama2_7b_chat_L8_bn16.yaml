@@ -15,7 +15,7 @@ mlp:
     lr: 5.0e-4
 
 steering:
-  enabled_variants: [baseline, mlp_mc]
+  enabled_variants: [mlp_mc]
 
 slurm:
   gpus: 1
