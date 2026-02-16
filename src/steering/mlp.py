@@ -12,11 +12,11 @@ logger = logging.getLogger(__name__)
 
 
 class SteeringMLP(nn.Module):
-    """Non-linear processor for CAA vectors.
+    """Residual MLP that learns a delta correction to CAA vectors.
 
-    Initialized to approximate identity mapping for training stability,
-    especially important for large models (12B+) where random init can
-    cause immediate NaN gradients.
+    Architecture: output = input + net(input)
+    The MLP learns a refinement on top of the base steering vector,
+    structurally guaranteeing identity at initialization (delta ≈ 0).
     """
 
     def __init__(
@@ -38,29 +38,25 @@ class SteeringMLP(nn.Module):
             nn.Linear(hidden_dim, input_dim),
         )
 
-        # Initialize to near-identity for stable training
-        self._init_near_identity()
+        # Initialize final layer small so initial delta ≈ 0
+        self._init_small_delta()
 
-    def _init_near_identity(self) -> None:
-        """Initialize final layer with small weights so MLP ≈ identity initially.
+    def _init_small_delta(self) -> None:
+        """Initialize final layer with small weights so delta starts near zero.
 
-        This prevents catastrophic first-step gradients in large models where
-        random initialization can produce huge margin violations.
+        Ensures gradient flow from step 1 (unlike zero init) while keeping
+        the initial output close to identity: output = input + ~0.
         """
-        # The final linear layer is net[6]
         final_linear = self.net[6]
         if isinstance(final_linear, nn.Linear):
-            # Small random init (10x smaller than default)
             nn.init.normal_(final_linear.weight, mean=0.0, std=0.01)
             nn.init.zeros_(final_linear.bias)
             logger.debug(
-                "Initialized MLP final layer with std=0.01 for near-identity start"
+                "Initialized MLP final layer with std=0.01 for small initial delta"
             )
 
     def forward(self, vector: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-        # Simple pass-through with small transformation
-        # MSE regularization in training will keep this close to identity
-        return self.net(vector)
+        return vector + self.net(vector)
 
 
 @dataclass
