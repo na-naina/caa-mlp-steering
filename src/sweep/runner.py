@@ -544,8 +544,12 @@ def run_phase1(
 
             mc_mc = res.get("mc_eval", {}).get("mlp_mc", {}).get("accuracy", 0)
             mc_gen = res.get("mc_eval", {}).get("mlp_gen", {}).get("accuracy", 0)
-            LOG.info("    MC acc — mlp_mc: %.1f%%  mlp_gen: %.1f%%",
-                     mc_mc * 100, mc_gen * 100)
+            train_acc = res.get("mc_final_acc", 0) or 0
+            LOG.info(
+                "    train: %.0f%% → val_mc: %.1f%%  val_gen: %.1f%%  (gap: %.0f%%)",
+                train_acc * 100, mc_mc * 100, mc_gen * 100,
+                (train_acc - mc_mc) * 100,
+            )
 
     # Save aggregated Phase 1 results
     with open(sweep_dir / "phase1_results.json", "w") as f:
