@@ -157,6 +157,10 @@ def main() -> int:
         "--sweep-dir", type=Path, default=None,
         help="Resume from / write to existing sweep directory",
     )
+    parser.add_argument(
+        "--bottleneck", type=int, default=None,
+        help="Use low-rank bottleneck MLP instead of fat MLP (e.g. 16, 32, 64)",
+    )
     parser.add_argument("--phase1-only", action="store_true")
     parser.add_argument("--phase2-only", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
@@ -170,6 +174,12 @@ def main() -> int:
 
     base_config = load_config(args.model)
     base_config.setdefault("run", {})["seed"] = args.seed
+
+    # Apply bottleneck override
+    if args.bottleneck is not None:
+        base_config.setdefault("mlp", {}).setdefault("architecture", {})[
+            "bottleneck_dim"
+        ] = args.bottleneck
 
     sweep_config = SweepConfig(
         layers=args.layers or DEFAULT_LAYERS,

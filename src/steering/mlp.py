@@ -15,8 +15,12 @@ class SteeringMLP(nn.Module):
     """Residual MLP that learns a delta correction to CAA vectors.
 
     Architecture: output = input + net(input)
-    The MLP learns a refinement on top of the base steering vector,
-    structurally guaranteeing identity at initialization (delta ≈ 0).
+
+    Two modes controlled by ``bottleneck_dim``:
+      - None (default): fat 3-layer MLP (input→hidden→hidden→input).
+        ~134M params at dim=4096, multiplier=2.0.
+      - int: low-rank bottleneck (input→bottleneck→input).
+        Similar to LoRA. bottleneck_dim=16 → ~131K params.
     """
 
     def __init__(
@@ -25,18 +29,29 @@ class SteeringMLP(nn.Module):
         *,
         hidden_multiplier: float = 2.0,
         dropout: float = 0.1,
+        bottleneck_dim: int | None = None,
     ) -> None:
         super().__init__()
-        hidden_dim = max(int(input_dim * hidden_multiplier), input_dim)
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, input_dim),
-        )
+        self.bottleneck_dim = bottleneck_dim
+
+        if bottleneck_dim is not None:
+            self.net = nn.Sequential(
+                nn.Linear(input_dim, bottleneck_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(bottleneck_dim, input_dim),
+            )
+        else:
+            hidden_dim = max(int(input_dim * hidden_multiplier), input_dim)
+            self.net = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, input_dim),
+            )
 
         # Initialize final layer small so initial delta ≈ 0
         self._init_small_delta()
@@ -47,7 +62,7 @@ class SteeringMLP(nn.Module):
         Ensures gradient flow from step 1 (unlike zero init) while keeping
         the initial output close to identity: output = input + ~0.
         """
-        final_linear = self.net[6]
+        final_linear = self.net[-1]
         if isinstance(final_linear, nn.Linear):
             nn.init.normal_(final_linear.weight, mean=0.0, std=0.01)
             nn.init.zeros_(final_linear.bias)

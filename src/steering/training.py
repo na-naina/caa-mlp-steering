@@ -132,7 +132,7 @@ def train_mc_mlp(
             if not prompts:
                 continue
 
-            vector = vector_bank.sample(rng).to(primary_device, dtype=param_dtype)
+            vector = vector_bank.sample_interpolated(rng).to(primary_device, dtype=param_dtype)
             transformed = mlp(vector.unsqueeze(0)).squeeze(0)
 
             with steering_hook(
@@ -287,7 +287,7 @@ def train_gen_mlp(
             if not prompts:
                 continue
 
-            vector = vector_bank.sample(rng).to(primary_device, dtype=param_dtype)
+            vector = vector_bank.sample_interpolated(rng).to(primary_device, dtype=param_dtype)
             transformed = mlp(vector.unsqueeze(0)).squeeze(0)
 
             with steering_hook(

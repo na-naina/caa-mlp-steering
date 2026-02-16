@@ -204,6 +204,7 @@ def run_hp_combo(
         input_dim=hidden_dim,
         hidden_multiplier=arch_cfg.get("hidden_multiplier", 2.0),
         dropout=arch_cfg.get("dropout", 0.1),
+        bottleneck_dim=arch_cfg.get("bottleneck_dim"),
     ).to(device, dtype=param_dtype)
 
     base_mc_cfg = mlp_cfg.get("mc_training", {})
@@ -253,6 +254,7 @@ def run_hp_combo(
         input_dim=hidden_dim,
         hidden_multiplier=arch_cfg.get("hidden_multiplier", 2.0),
         dropout=arch_cfg.get("dropout", 0.1),
+        bottleneck_dim=arch_cfg.get("bottleneck_dim"),
     ).to(device, dtype=param_dtype)
 
     base_gen_cfg = mlp_cfg.get("gen_training", {})

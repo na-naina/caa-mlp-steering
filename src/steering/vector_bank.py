@@ -24,6 +24,20 @@ class VectorBank:
         choice = int(rng.integers(0, len(self.vectors)))
         return self.vectors[choice]
 
+    def sample_interpolated(self, rng: np.random.Generator) -> torch.Tensor:
+        """Sample a random convex combination of bank vectors.
+
+        Draws Dirichlet weights over all bank vectors to produce a novel
+        vector in the same subspace — effectively infinite input diversity
+        at zero extraction cost.
+        """
+        if not self.vectors:
+            return self.base_vector
+        weights = rng.dirichlet(np.ones(len(self.vectors)))
+        weights_t = torch.tensor(weights, dtype=self.vectors[0].dtype)
+        stacked = torch.stack(self.vectors)  # (n_vectors, dim)
+        return (weights_t @ stacked)  # (dim,)
+
 
 class VectorBankBuilder:
     """Construct a bank of steering vectors from cached activations."""
