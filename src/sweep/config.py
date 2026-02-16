@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from itertools import product
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -13,6 +13,9 @@ class SweepConfig:
     layers: List[int]
     learning_rates: List[float]
     mse_regs: List[float]
+    bottleneck_dims: List[Optional[int]] = field(
+        default_factory=lambda: [None]
+    )
     top_k: int = 5
     mc_only_variants: List[str] = field(
         default_factory=lambda: ["mlp_mc", "mlp_gen"]
@@ -20,21 +23,34 @@ class SweepConfig:
 
     @property
     def total_configs(self) -> int:
-        return len(self.layers) * len(self.learning_rates) * len(self.mse_regs)
+        return (
+            len(self.layers)
+            * len(self.learning_rates)
+            * len(self.mse_regs)
+            * len(self.bottleneck_dims)
+        )
 
     def configs_for_layer(self, layer: int) -> List[Dict[str, Any]]:
         """Return all HP combos for a given layer."""
         combos = []
-        for lr, reg in product(self.learning_rates, self.mse_regs):
+        for lr, reg, bn in product(
+            self.learning_rates, self.mse_regs, self.bottleneck_dims
+        ):
             combos.append({
                 "layer": layer,
                 "lr": lr,
                 "mse_reg": reg,
-                "combo_id": combo_dir_name(lr, reg),
+                "bottleneck_dim": bn,
+                "combo_id": combo_dir_name(lr, reg, bn),
             })
         return combos
 
 
-def combo_dir_name(lr: float, mse_reg: float) -> str:
+def combo_dir_name(
+    lr: float, mse_reg: float, bottleneck_dim: Optional[int] = None
+) -> str:
     """Generate a human-readable directory name for an HP combo."""
-    return f"lr{lr:.0e}_reg{mse_reg:.0e}"
+    base = f"lr{lr:.0e}_reg{mse_reg:.0e}"
+    if bottleneck_dim is not None:
+        base += f"_bn{bottleneck_dim}"
+    return base

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -26,8 +26,8 @@ class TruthfulQAPipelineSplits:
 
     steering_pool: List[int]
     train: List[int]
-    val: List[int]
     test: List[int]
+    val: List[int] = field(default_factory=list)  # Optional, kept for backward compat
 
 
 class TruthfulQADatasetManager:
@@ -73,14 +73,19 @@ class TruthfulQADatasetManager:
         *,
         steering_pool_size: int,
         train_size: int,
-        val_size: int,
-        test_size: int,
+        test_size: int = 0,
+        val_size: int = 0,
     ) -> TruthfulQAPipelineSplits:
-        """Create non-overlapping splits for steering/training/evaluation."""
+        """Create non-overlapping splits for steering/training/evaluation.
 
-        total_requested = (
-            steering_pool_size + train_size + val_size + test_size
-        )
+        If *test_size* is 0, test gets all remaining items after
+        steering_pool + train + val are allocated.
+        """
+        fixed = steering_pool_size + train_size + val_size
+        if test_size == 0:
+            test_size = self.total_examples - fixed
+
+        total_requested = fixed + test_size
         if total_requested > self.total_examples:
             raise ValueError(
                 "Requested split sizes exceed available dataset size: "
@@ -98,7 +103,7 @@ class TruthfulQADatasetManager:
         train = indices[cursor : cursor + train_size].tolist()
         cursor += train_size
 
-        val = indices[cursor : cursor + val_size].tolist()
+        val = indices[cursor : cursor + val_size].tolist() if val_size else []
         cursor += val_size
 
         test = indices[cursor : cursor + test_size].tolist()
@@ -114,8 +119,8 @@ class TruthfulQADatasetManager:
         return TruthfulQAPipelineSplits(
             steering_pool=steering_pool,
             train=train,
-            val=val,
             test=test,
+            val=val,
         )
 
     def build_caa_prompts(

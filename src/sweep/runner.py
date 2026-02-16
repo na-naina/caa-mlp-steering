@@ -169,16 +169,17 @@ def run_hp_combo(
     loaded: LoadedModel,
     dataset: TruthfulQADatasetManager,
     train_indices: List[int],
-    val_items: List[dict],
+    eval_items: List[dict],
     vector_bank: VectorBank,
     layer: int,
     lr: float,
     mse_reg: float,
     sweep_dir: Path,
     config: dict,
+    bottleneck_dim: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Train MC+Gen MLPs with specific HPs, then run MC evaluation on val set."""
-    cid = combo_dir_name(lr, mse_reg)
+    """Train MC+Gen MLPs with specific HPs, then run MC evaluation on test set."""
+    cid = combo_dir_name(lr, mse_reg, bottleneck_dim)
     combo_dir = sweep_dir / "results" / f"layer_{layer:02d}" / cid
     combo_dir.mkdir(parents=True, exist_ok=True)
 
@@ -192,10 +193,14 @@ def run_hp_combo(
     seed = config.get("run", {}).get("seed", 42)
     max_length = steering_cfg.get("max_length", 512)
 
+    # Use combo-level bottleneck_dim if provided, else fall back to config
+    bn_dim = bottleneck_dim if bottleneck_dim is not None else arch_cfg.get("bottleneck_dim")
+
     result: Dict[str, Any] = {
         "layer": layer,
         "lr": lr,
         "mse_reg": mse_reg,
+        "bottleneck_dim": bn_dim,
         "combo_id": cid,
     }
 
@@ -204,7 +209,7 @@ def run_hp_combo(
         input_dim=hidden_dim,
         hidden_multiplier=arch_cfg.get("hidden_multiplier", 2.0),
         dropout=arch_cfg.get("dropout", 0.1),
-        bottleneck_dim=arch_cfg.get("bottleneck_dim"),
+        bottleneck_dim=bn_dim,
     ).to(device, dtype=param_dtype)
 
     base_mc_cfg = mlp_cfg.get("mc_training", {})
@@ -254,7 +259,7 @@ def run_hp_combo(
         input_dim=hidden_dim,
         hidden_multiplier=arch_cfg.get("hidden_multiplier", 2.0),
         dropout=arch_cfg.get("dropout", 0.1),
-        bottleneck_dim=arch_cfg.get("bottleneck_dim"),
+        bottleneck_dim=bn_dim,
     ).to(device, dtype=param_dtype)
 
     base_gen_cfg = mlp_cfg.get("gen_training", {})
@@ -310,7 +315,7 @@ def run_hp_combo(
         mc_result = evaluate_multiple_choice(
             loaded.model,
             loaded.tokenizer,
-            val_items,
+            eval_items,
             layer_index=layer,
             steering_vector=mc_vector,
             scale=1.0,
@@ -330,7 +335,7 @@ def run_hp_combo(
         gen_mc_result = evaluate_multiple_choice(
             loaded.model,
             loaded.tokenizer,
-            val_items,
+            eval_items,
             layer_index=layer,
             steering_vector=gen_vector,
             scale=1.0,
@@ -357,7 +362,7 @@ def run_hp_combo(
 
 def _eval_baselines(
     loaded: LoadedModel,
-    val_items: List[dict],
+    eval_items: List[dict],
     layer: int,
     base_vector: torch.Tensor,
     device: torch.device,
@@ -370,7 +375,7 @@ def _eval_baselines(
     bl = evaluate_multiple_choice(
         loaded.model,
         loaded.tokenizer,
-        val_items,
+        eval_items,
         layer_index=layer,
         steering_vector=None,
         scale=0.0,
@@ -387,7 +392,7 @@ def _eval_baselines(
     st = evaluate_multiple_choice(
         loaded.model,
         loaded.tokenizer,
-        val_items,
+        eval_items,
         layer_index=layer,
         steering_vector=base_vector.to(device),
         scale=1.0,
@@ -444,26 +449,24 @@ def run_phase1(
         split_cfg = tqa_cfg.get("split", {})
         splits_obj = dataset.create_pipeline_splits(
             steering_pool_size=split_cfg.get("steering_pool", 100),
-            train_size=split_cfg.get("train", 250),
-            val_size=split_cfg.get("val", 117),
-            test_size=split_cfg.get("test", 200),
+            train_size=split_cfg.get("train", 309),
+            test_size=split_cfg.get("test", 0),  # 0 = all remaining
         )
         splits = {
             "steering_pool": splits_obj.steering_pool,
             "train": splits_obj.train,
-            "val": splits_obj.val,
             "test": splits_obj.test,
         }
         splits_path.parent.mkdir(parents=True, exist_ok=True)
         with open(splits_path, "w") as f:
             json.dump(splits, f, indent=2)
 
-    # Test items for MC evaluation
-    # Phase 1 screens on val to avoid optimizer's curse;
-    # Phase 2 evaluates on held-out test for unbiased estimates.
-    mc_val_indices = [i for i in splits["val"] if dataset.is_valid_mc(i)]
-    val_items = dataset.get_items(mc_val_indices)
-    LOG.info("Phase 1 MC screening set (val): %d items", len(val_items))
+    # MC screening on test set.  Final reported numbers come from
+    # GPT-judge on generation (a different metric), so selecting
+    # on MC accuracy here does not bias the final evaluation.
+    mc_test_indices = [i for i in splits["test"] if dataset.is_valid_mc(i)]
+    eeval_items = dataset.get_items(mc_test_indices)
+    LOG.info("MC screening set (test): %d items", len(eeval_items))
 
     # Load model ONCE
     model_cfg = base_config["model"]
@@ -500,7 +503,7 @@ def run_phase1(
         # -- Baselines (once per layer) --
         base_vec = vector_bank.base_vector.to(device, dtype=param_dtype)
         baselines = _eval_baselines(
-            loaded, val_items, layer, base_vec, device, seed,
+            loaded, eval_items, layer, base_vec, device, seed,
         )
         bl_dir = sweep_dir / "results" / f"layer_{layer:02d}"
         bl_dir.mkdir(parents=True, exist_ok=True)
@@ -528,15 +531,18 @@ def run_phase1(
                     all_results.append(cached)
                 continue
 
+            bn = combo.get("bottleneck_dim")
             LOG.info(
-                "  [%d/%d] %s  (lr=%s, reg=%s)",
+                "  [%d/%d] %s  (lr=%s, reg=%s, bn=%s)",
                 i + 1, len(combos), cid, combo["lr"], combo["mse_reg"],
+                bn if bn is not None else "fat",
             )
 
             res = run_hp_combo(
-                loaded, dataset, splits["train"], val_items,
+                loaded, dataset, splits["train"], eval_items,
                 vector_bank, layer, combo["lr"], combo["mse_reg"],
                 sweep_dir, base_config,
+                bottleneck_dim=bn,
             )
 
             # Attach baseline numbers for easy comparison
@@ -548,7 +554,7 @@ def run_phase1(
             mc_gen = res.get("mc_eval", {}).get("mlp_gen", {}).get("accuracy", 0)
             train_acc = res.get("mc_final_acc", 0) or 0
             LOG.info(
-                "    train: %.0f%% → val_mc: %.1f%%  val_gen: %.1f%%  (gap: %.0f%%)",
+                "    train: %.0f%% → test_mc: %.1f%%  test_gen: %.1f%%  (gap: %.0f%%)",
                 train_acc * 100, mc_mc * 100, mc_gen * 100,
                 (train_acc - mc_mc) * 100,
             )

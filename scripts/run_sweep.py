@@ -73,12 +73,17 @@ def _run_phase2_config(
     phase2_dir.mkdir(parents=True, exist_ok=True)
 
     # Build config with this combo's HPs
+    bn_dim = config_result.get("bottleneck_dim")
     cfg = copy.deepcopy(base_config)
     cfg["model"]["layer"] = layer
     cfg["mlp"]["mc_training"]["lr"] = lr
     cfg["mlp"]["mc_training"]["mse_reg"] = mse_reg
     cfg["mlp"]["gen_training"]["lr"] = lr
     cfg["mlp"]["gen_training"]["mse_reg"] = mse_reg
+    if bn_dim is not None:
+        cfg.setdefault("mlp", {}).setdefault("architecture", {})[
+            "bottleneck_dim"
+        ] = bn_dim
 
     # Create RunContext-compatible directory layout
     for subdir in ("vectors", "responses", "scores", "metadata", "checkpoints"):
@@ -161,6 +166,10 @@ def main() -> int:
         "--bottleneck", type=int, default=None,
         help="Use low-rank bottleneck MLP instead of fat MLP (e.g. 16, 32, 64)",
     )
+    parser.add_argument(
+        "--bottlenecks", type=str, nargs="+", default=None,
+        help="Sweep bottleneck dims (e.g. 4 8 16 32 64 fat). Use 'fat' or '0' for full-size MLP.",
+    )
     parser.add_argument("--phase1-only", action="store_true")
     parser.add_argument("--phase2-only", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
@@ -175,24 +184,36 @@ def main() -> int:
     base_config = load_config(args.model)
     base_config.setdefault("run", {})["seed"] = args.seed
 
-    # Apply bottleneck override
+    # Apply bottleneck override (single value — applies to all configs)
     if args.bottleneck is not None:
         base_config.setdefault("mlp", {}).setdefault("architecture", {})[
             "bottleneck_dim"
         ] = args.bottleneck
+
+    # Parse bottleneck dims for sweep axis
+    bottleneck_dims = None
+    if args.bottlenecks is not None:
+        bottleneck_dims = []
+        for v in args.bottlenecks:
+            if v.lower() in ("fat", "none", "0"):
+                bottleneck_dims.append(None)
+            else:
+                bottleneck_dims.append(int(v))
 
     sweep_config = SweepConfig(
         layers=args.layers or DEFAULT_LAYERS,
         learning_rates=args.lrs or DEFAULT_LRS,
         mse_regs=args.regs or DEFAULT_REGS,
         top_k=args.top_k,
+        **({"bottleneck_dims": bottleneck_dims} if bottleneck_dims is not None else {}),
     )
 
     LOG.info(
-        "Sweep grid: %d layers x %d LRs x %d regs = %d configs",
+        "Sweep grid: %d layers x %d LRs x %d regs x %d archs = %d configs",
         len(sweep_config.layers),
         len(sweep_config.learning_rates),
         len(sweep_config.mse_regs),
+        len(sweep_config.bottleneck_dims),
         sweep_config.total_configs,
     )
 
@@ -210,6 +231,9 @@ def main() -> int:
     sweep_dir.mkdir(parents=True, exist_ok=True)
 
     # Save sweep config
+    bn_display = [
+        b if b is not None else "fat" for b in sweep_config.bottleneck_dims
+    ]
     with open(sweep_dir / "sweep_config.yaml", "w") as f:
         yaml.safe_dump(
             {
@@ -217,6 +241,7 @@ def main() -> int:
                     "layers": sweep_config.layers,
                     "learning_rates": sweep_config.learning_rates,
                     "mse_regs": sweep_config.mse_regs,
+                    "bottleneck_dims": bn_display,
                     "top_k": sweep_config.top_k,
                 },
                 "base_model": args.model,

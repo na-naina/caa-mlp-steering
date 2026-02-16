@@ -50,10 +50,15 @@ def select_top_k(
 
 def print_results_table(results: List[Dict[str, Any]]) -> None:
     """Print a human-readable results table."""
+    # Check if any result has a bottleneck_dim to decide column visibility
+    has_bn = any(r.get("bottleneck_dim") is not None for r in results)
+
     header = (
         f"{'Rank':>4}  {'Layer':>5}  {'LR':>10}  {'MSE Reg':>10}  "
-        f"{'MC_mc%':>8}  {'MC_gen%':>8}  {'BL%':>7}  {'CAA%':>7}  {'OK':>3}"
     )
+    if has_bn:
+        header += f"{'BN':>5}  "
+    header += f"{'MC_mc%':>8}  {'MC_gen%':>8}  {'BL%':>7}  {'CAA%':>7}  {'OK':>3}"
     print(header)
     print("-" * len(header))
 
@@ -63,8 +68,16 @@ def print_results_table(results: List[Dict[str, Any]]) -> None:
         bl = r.get("baselines", {}).get("baseline", {}).get("accuracy", 0) * 100
         caa = r.get("baselines", {}).get("steered", {}).get("accuracy", 0) * 100
         ok = "Y" if r.get("mc_train_valid") else "N"
-        print(
+        line = (
             f"{r.get('rank', '-'):>4}  {r['layer']:>5}  {r['lr']:>10.0e}  "
-            f"{r['mse_reg']:>10.0e}  {mc_mc:>7.1f}%  {mc_gen:>7.1f}%  "
+            f"{r['mse_reg']:>10.0e}  "
+        )
+        if has_bn:
+            bn = r.get("bottleneck_dim")
+            bn_str = str(bn) if bn is not None else "fat"
+            line += f"{bn_str:>5}  "
+        line += (
+            f"{mc_mc:>7.1f}%  {mc_gen:>7.1f}%  "
             f"{bl:>6.1f}%  {caa:>6.1f}%  {ok:>3}"
         )
+        print(line)

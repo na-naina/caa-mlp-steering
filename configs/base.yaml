@@ -74,9 +74,8 @@ truthfulqa:
   cache_dir: cache/datasets
   split:
     steering_pool: 100
-    train: 250
-    val: 117
-    test: 200
+    train: 309
+    test: 408
 
 evaluation:
   # Generation parameters

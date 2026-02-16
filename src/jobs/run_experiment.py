@@ -376,8 +376,8 @@ def _prepare_pipeline_splits(
     splits = dataset_manager.create_pipeline_splits(
         steering_pool_size=split_cfg.get("steering_pool", 100),
         train_size=split_cfg.get("train", 250),
-        val_size=split_cfg.get("val", 117),
-        test_size=split_cfg.get("test", 200),
+        val_size=split_cfg.get("val", 0),
+        test_size=split_cfg.get("test", 0),
     )
     return splits
 
