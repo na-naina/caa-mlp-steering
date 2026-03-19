@@ -181,22 +181,31 @@ def train_mc_mlp(
             mse_loss = F.mse_loss(transformed, vector)
 
             # KL divergence regularization: preserve output distribution
+            # Computed at the last prompt position only (next-token prediction)
+            # to keep memory usage manageable on 24GB GPUs
             kl_loss = torch.tensor(0.0, device=primary_device)
             if config.kl_reg > 0:
-                # Baseline forward (no steering, detached)
+                # Find last prompt position (first answer token - 1)
+                # answer_mask starts at the first answer token
+                prompt_lens = mask_c.shape[1] - mask_c.sum(dim=1).long()  # [batch]
+                last_prompt_pos = (prompt_lens - 1).clamp(min=0)
+                batch_idx = torch.arange(input_ids_c.shape[0], device=primary_device)
+
+                # Baseline forward at last prompt position only
                 with torch.no_grad():
                     baseline_out = model(input_ids=input_ids_c, attention_mask=attn_c)
-                    baseline_probs = F.softmax(baseline_out.logits[:, :-1, :], dim=-1)
+                    baseline_logits_last = baseline_out.logits[batch_idx, last_prompt_pos]  # [batch, vocab]
+                    baseline_probs = F.softmax(baseline_logits_last, dim=-1)
+                    del baseline_out  # free memory
 
                 # Steered forward (grad flows through MLP via steering hook)
                 with steering_hook(model, layer_index, transformed, scale=1.0):
                     steered_out = model(input_ids=input_ids_c, attention_mask=attn_c)
-                    steered_log_probs = F.log_softmax(steered_out.logits[:, :-1, :], dim=-1)
+                    steered_logits_last = steered_out.logits[batch_idx, last_prompt_pos]  # [batch, vocab]
+                    steered_log_probs = F.log_softmax(steered_logits_last, dim=-1)
+                    del steered_out  # free memory
 
-                # KL(baseline || steered) masked to answer positions only
-                kl_per_token = F.kl_div(steered_log_probs, baseline_probs, reduction='none').sum(-1)
-                kl_masked = (kl_per_token * mask_c).sum() / mask_c.sum().clamp(min=1)
-                kl_loss = kl_masked
+                kl_loss = F.kl_div(steered_log_probs, baseline_probs, reduction='batchmean')
 
             loss = hinge_loss + config.mse_reg * mse_loss + config.kl_reg * kl_loss
 
@@ -340,17 +349,21 @@ def train_gen_mlp(
             # KL divergence regularization: preserve output distribution
             kl_loss = torch.tensor(0.0, device=primary_device)
             if config.kl_reg > 0:
+                prompt_lens = answer_mask.shape[1] - answer_mask.sum(dim=1).long()
+                last_prompt_pos = (prompt_lens - 1).clamp(min=0)
+                batch_idx = torch.arange(input_ids.shape[0], device=primary_device)
+
                 with torch.no_grad():
                     baseline_out = model(input_ids=input_ids, attention_mask=attention_mask)
-                    baseline_probs = F.softmax(baseline_out.logits[:, :-1, :], dim=-1)
+                    baseline_probs = F.softmax(baseline_out.logits[batch_idx, last_prompt_pos], dim=-1)
+                    del baseline_out
 
                 with steering_hook(model, layer_index, transformed, scale=1.0):
                     steered_out = model(input_ids=input_ids, attention_mask=attention_mask)
-                    steered_log_probs = F.log_softmax(steered_out.logits[:, :-1, :], dim=-1)
+                    steered_log_probs = F.log_softmax(steered_out.logits[batch_idx, last_prompt_pos], dim=-1)
+                    del steered_out
 
-                kl_per_token = F.kl_div(steered_log_probs, baseline_probs, reduction='none').sum(-1)
-                kl_masked = (kl_per_token * answer_mask).sum() / answer_mask.sum().clamp(min=1)
-                kl_loss = kl_masked
+                kl_loss = F.kl_div(steered_log_probs, baseline_probs, reduction='batchmean')
 
             loss = nll_loss + config.mse_reg * mse_loss + config.kl_reg * kl_loss
 
