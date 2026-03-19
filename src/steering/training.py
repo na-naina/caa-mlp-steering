@@ -137,36 +137,62 @@ def train_mc_mlp(
             vector = vector_bank.sample_interpolated(rng).to(primary_device, dtype=param_dtype)
             transformed = mlp(vector.unsqueeze(0)).squeeze(0)
 
+            # KL: get baseline logits BEFORE steering (no grad, no extra memory)
+            need_kl = config.kl_reg > 0
+            baseline_probs = None
+            if need_kl:
+                inputs_correct = build_prompt_answer_batch(
+                    tokenizer, prompts, answers_correct, max_length=max_length
+                )
+                input_ids_c, attn_c, mask_c = inputs_correct
+                input_ids_c = input_ids_c.to(primary_device)
+                attn_c = attn_c.to(primary_device)
+                mask_c = mask_c.to(primary_device)
+
+                with torch.no_grad():
+                    baseline_out = model(input_ids=input_ids_c, attention_mask=attn_c)
+                    prompt_lens = mask_c.shape[1] - mask_c.sum(dim=1).long()
+                    last_pos = (prompt_lens - 1).clamp(min=0)
+                    batch_idx = torch.arange(input_ids_c.shape[0], device=primary_device)
+                    baseline_probs = F.softmax(baseline_out.logits[batch_idx, last_pos], dim=-1)
+                    del baseline_out
+
             with steering_hook(
                 model,
                 layer_index,
                 transformed,
                 scale=1.0,
             ):
-                inputs_correct = build_prompt_answer_batch(
-                    tokenizer, prompts, answers_correct, max_length=max_length
-                )
+                if not need_kl:
+                    inputs_correct = build_prompt_answer_batch(
+                        tokenizer, prompts, answers_correct, max_length=max_length
+                    )
+                    input_ids_c, attn_c, mask_c = inputs_correct
+                    input_ids_c = input_ids_c.to(primary_device)
+                    attn_c = attn_c.to(primary_device)
+                    mask_c = mask_c.to(primary_device)
+
                 inputs_incorrect = build_prompt_answer_batch(
                     tokenizer, prompts, answers_incorrect, max_length=max_length
                 )
-
-                input_ids_c, attn_c, mask_c = inputs_correct
                 input_ids_i, attn_i, mask_i = inputs_incorrect
-
-                input_ids_c = input_ids_c.to(primary_device)
-                attn_c = attn_c.to(primary_device)
-                mask_c = mask_c.to(primary_device)
-
                 input_ids_i = input_ids_i.to(primary_device)
                 attn_i = attn_i.to(primary_device)
                 mask_i = mask_i.to(primary_device)
 
-                logprob_correct, _ = compute_answer_logprobs(
+                # Get steered logprobs + optionally last-prompt logits for KL
+                result_c = compute_answer_logprobs(
                     model,
                     input_ids=input_ids_c,
                     attention_mask=attn_c,
                     answer_mask=mask_c,
+                    return_last_prompt_logits=need_kl,
                 )
+                if need_kl:
+                    logprob_correct, _, steered_logits_last = result_c
+                else:
+                    logprob_correct, _ = result_c
+
                 logprob_incorrect, _ = compute_answer_logprobs(
                     model,
                     input_ids=input_ids_i,
@@ -180,31 +206,11 @@ def train_mc_mlp(
             # MSE regularization: encourage MLP to stay close to identity
             mse_loss = F.mse_loss(transformed, vector)
 
-            # KL divergence regularization: preserve output distribution
-            # Computed at the last prompt position only (next-token prediction)
-            # to keep memory usage manageable on 24GB GPUs
+            # KL divergence: reuses logits from the existing steered forward pass
+            # No extra forward pass needed — just one baseline pass (no grad)
             kl_loss = torch.tensor(0.0, device=primary_device)
-            if config.kl_reg > 0:
-                # Find last prompt position (first answer token - 1)
-                # answer_mask starts at the first answer token
-                prompt_lens = mask_c.shape[1] - mask_c.sum(dim=1).long()  # [batch]
-                last_prompt_pos = (prompt_lens - 1).clamp(min=0)
-                batch_idx = torch.arange(input_ids_c.shape[0], device=primary_device)
-
-                # Baseline forward at last prompt position only
-                with torch.no_grad():
-                    baseline_out = model(input_ids=input_ids_c, attention_mask=attn_c)
-                    baseline_logits_last = baseline_out.logits[batch_idx, last_prompt_pos]  # [batch, vocab]
-                    baseline_probs = F.softmax(baseline_logits_last, dim=-1)
-                    del baseline_out  # free memory
-
-                # Steered forward (grad flows through MLP via steering hook)
-                with steering_hook(model, layer_index, transformed, scale=1.0):
-                    steered_out = model(input_ids=input_ids_c, attention_mask=attn_c)
-                    steered_logits_last = steered_out.logits[batch_idx, last_prompt_pos]  # [batch, vocab]
-                    steered_log_probs = F.log_softmax(steered_logits_last, dim=-1)
-                    del steered_out  # free memory
-
+            if need_kl:
+                steered_log_probs = F.log_softmax(steered_logits_last, dim=-1)
                 kl_loss = F.kl_div(steered_log_probs, baseline_probs, reduction='batchmean')
 
             loss = hinge_loss + config.mse_reg * mse_loss + config.kl_reg * kl_loss
@@ -320,49 +326,55 @@ def train_gen_mlp(
             vector = vector_bank.sample_interpolated(rng).to(primary_device, dtype=param_dtype)
             transformed = mlp(vector.unsqueeze(0)).squeeze(0)
 
+            need_kl = config.kl_reg > 0
+            baseline_probs = None
+
+            # Build batch once, reuse for baseline + steered
+            inputs = build_prompt_answer_batch(
+                tokenizer, prompts, answers, max_length=max_length
+            )
+            input_ids, attention_mask, answer_mask = inputs
+            input_ids = input_ids.to(primary_device)
+            attention_mask = attention_mask.to(primary_device)
+            answer_mask = answer_mask.to(primary_device)
+
+            # KL: baseline forward before steering (no grad)
+            if need_kl:
+                with torch.no_grad():
+                    baseline_out = model(input_ids=input_ids, attention_mask=attention_mask)
+                    prompt_lens = answer_mask.shape[1] - answer_mask.sum(dim=1).long()
+                    last_pos = (prompt_lens - 1).clamp(min=0)
+                    batch_idx = torch.arange(input_ids.shape[0], device=primary_device)
+                    baseline_probs = F.softmax(baseline_out.logits[batch_idx, last_pos], dim=-1)
+                    del baseline_out
+
             with steering_hook(
                 model,
                 layer_index,
                 transformed,
                 scale=1.0,
             ):
-                inputs = build_prompt_answer_batch(
-                    tokenizer, prompts, answers, max_length=max_length
-                )
-                input_ids, attention_mask, answer_mask = inputs
-                input_ids = input_ids.to(primary_device)
-                attention_mask = attention_mask.to(primary_device)
-                answer_mask = answer_mask.to(primary_device)
-
-                avg_logprob, _ = compute_answer_logprobs(
+                result = compute_answer_logprobs(
                     model,
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     answer_mask=answer_mask,
+                    return_last_prompt_logits=need_kl,
                 )
+                if need_kl:
+                    avg_logprob, _, steered_logits_last = result
+                else:
+                    avg_logprob, _ = result
 
             nll_loss = -avg_logprob.mean()
 
             # MSE regularization: encourage MLP to stay close to identity
             mse_loss = F.mse_loss(transformed, vector)
 
-            # KL divergence regularization: preserve output distribution
+            # KL divergence: reuses logits from existing forward pass
             kl_loss = torch.tensor(0.0, device=primary_device)
-            if config.kl_reg > 0:
-                prompt_lens = answer_mask.shape[1] - answer_mask.sum(dim=1).long()
-                last_prompt_pos = (prompt_lens - 1).clamp(min=0)
-                batch_idx = torch.arange(input_ids.shape[0], device=primary_device)
-
-                with torch.no_grad():
-                    baseline_out = model(input_ids=input_ids, attention_mask=attention_mask)
-                    baseline_probs = F.softmax(baseline_out.logits[batch_idx, last_prompt_pos], dim=-1)
-                    del baseline_out
-
-                with steering_hook(model, layer_index, transformed, scale=1.0):
-                    steered_out = model(input_ids=input_ids, attention_mask=attention_mask)
-                    steered_log_probs = F.log_softmax(steered_out.logits[batch_idx, last_prompt_pos], dim=-1)
-                    del steered_out
-
+            if need_kl:
+                steered_log_probs = F.log_softmax(steered_logits_last, dim=-1)
                 kl_loss = F.kl_div(steered_log_probs, baseline_probs, reduction='batchmean')
 
             loss = nll_loss + config.mse_reg * mse_loss + config.kl_reg * kl_loss
