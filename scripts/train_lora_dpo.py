@@ -101,7 +101,6 @@ def train_lora_dpo(model_name, output_dir, pairs, num_epochs=2, lr=5e-5, lora_r=
         save_strategy="no",
         remove_unused_columns=False,
         max_length=512,
-        max_prompt_length=256,
     )
 
     # Create HF dataset
