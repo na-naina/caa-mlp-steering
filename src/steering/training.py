@@ -99,12 +99,13 @@ def train_mc_mlp(
     mlp.train()
     model.eval()
 
-    # Enable gradient checkpointing when KL is used to reduce memory
-    # (recomputes activations during backward instead of storing them)
+    # Memory optimizations for KL training
     use_grad_ckpt = config.kl_reg > 0 and hasattr(model, 'gradient_checkpointing_enable')
+    old_use_cache = getattr(model.config, 'use_cache', True)
     if use_grad_ckpt:
         model.gradient_checkpointing_enable()
-        logger.info("Enabled gradient checkpointing for KL training")
+        model.config.use_cache = False  # Required for gradient checkpointing & saves ~4GB KV cache
+        logger.info("Enabled gradient checkpointing + disabled KV cache for KL training")
 
     accum_steps = config.gradient_accumulation_steps
 
@@ -265,6 +266,7 @@ def train_mc_mlp(
 
     if use_grad_ckpt:
         model.gradient_checkpointing_disable()
+        model.config.use_cache = old_use_cache
 
     mlp.eval()
     return {
@@ -304,9 +306,11 @@ def train_gen_mlp(
     model.eval()
 
     use_grad_ckpt = config.kl_reg > 0 and hasattr(model, 'gradient_checkpointing_enable')
+    old_use_cache = getattr(model.config, 'use_cache', True)
     if use_grad_ckpt:
         model.gradient_checkpointing_enable()
-        logger.info("Enabled gradient checkpointing for KL training")
+        model.config.use_cache = False
+        logger.info("Enabled gradient checkpointing + disabled KV cache for KL training")
 
     accum_steps = config.gradient_accumulation_steps
 
@@ -428,6 +432,7 @@ def train_gen_mlp(
 
     if use_grad_ckpt:
         model.gradient_checkpointing_disable()
+        model.config.use_cache = old_use_cache
 
     mlp.eval()
     return {"loss": history_loss}
