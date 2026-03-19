@@ -156,6 +156,7 @@ def train_mc_mlp(
                     batch_idx = torch.arange(input_ids_c.shape[0], device=primary_device)
                     baseline_probs = F.softmax(baseline_out.logits[batch_idx, last_pos], dim=-1)
                     del baseline_out
+                torch.cuda.empty_cache()
 
             with steering_hook(
                 model,
@@ -347,6 +348,7 @@ def train_gen_mlp(
                     batch_idx = torch.arange(input_ids.shape[0], device=primary_device)
                     baseline_probs = F.softmax(baseline_out.logits[batch_idx, last_pos], dim=-1)
                     del baseline_out
+                torch.cuda.empty_cache()
 
             with steering_hook(
                 model,
