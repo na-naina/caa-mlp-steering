@@ -85,6 +85,8 @@ def main():
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit examples per task (for faster runs)")
     parser.add_argument("--batch-size", default="auto")
+    parser.add_argument("--lora-path", type=Path, default=None,
+                        help="Path to LoRA adapter to merge before evaluation")
     parser.add_argument("--output-dir", type=Path, default=Path("data/outputs/coherence"))
     args = parser.parse_args()
 
@@ -96,16 +98,28 @@ def main():
     if args.limit:
         LOG.info("Limit: %d examples per task", args.limit)
 
-    # Load model via lm-eval
+    # Load model via lm-eval (optionally with LoRA merged)
     LOG.info("Loading model: %s", args.model)
     import lm_eval
     from lm_eval.models.huggingface import HFLM
 
-    lm = HFLM(
-        pretrained=args.model,
-        dtype="bfloat16",
-        batch_size=args.batch_size,
-    )
+    if args.lora_path:
+        LOG.info("Merging LoRA adapter from %s", args.lora_path)
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from peft import PeftModel
+        base = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16, device_map="auto")
+        merged = PeftModel.from_pretrained(base, str(args.lora_path))
+        merged = merged.merge_and_unload()
+        tokenizer = AutoTokenizer.from_pretrained(args.model)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        lm = HFLM(pretrained=merged, tokenizer=tokenizer, dtype="bfloat16", batch_size=args.batch_size)
+    else:
+        lm = HFLM(
+            pretrained=args.model,
+            dtype="bfloat16",
+            batch_size=args.batch_size,
+        )
 
     # Phase 1: Baseline evaluation
     LOG.info("=== BASELINE EVALUATION ===")
