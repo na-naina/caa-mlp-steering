@@ -11,12 +11,14 @@ mlp:
     bottleneck_dim: 16
   mc_training:
     lr: 5.0e-4
-    batch_size: 4
+    batch_size: 2
+    gradient_accumulation_steps: 4
     mse_reg: 1.0e-2
     kl_reg: 0.1
   gen_training:
     lr: 5.0e-4
-    batch_size: 2
+    batch_size: 1
+    gradient_accumulation_steps: 4
     mse_reg: 1.0e-2
     kl_reg: 0.1
 
