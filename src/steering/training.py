@@ -99,6 +99,13 @@ def train_mc_mlp(
     mlp.train()
     model.eval()
 
+    # Enable gradient checkpointing when KL is used to reduce memory
+    # (recomputes activations during backward instead of storing them)
+    use_grad_ckpt = config.kl_reg > 0 and hasattr(model, 'gradient_checkpointing_enable')
+    if use_grad_ckpt:
+        model.gradient_checkpointing_enable()
+        logger.info("Enabled gradient checkpointing for KL training")
+
     accum_steps = config.gradient_accumulation_steps
 
     for epoch in range(config.epochs):
@@ -256,6 +263,9 @@ def train_mc_mlp(
         else:
             logger.warning("MC MLP epoch %d/%d - no valid training batches", epoch + 1, config.epochs)
 
+    if use_grad_ckpt:
+        model.gradient_checkpointing_disable()
+
     mlp.eval()
     return {
         "loss": history_loss,
@@ -292,6 +302,11 @@ def train_gen_mlp(
 
     mlp.train()
     model.eval()
+
+    use_grad_ckpt = config.kl_reg > 0 and hasattr(model, 'gradient_checkpointing_enable')
+    if use_grad_ckpt:
+        model.gradient_checkpointing_enable()
+        logger.info("Enabled gradient checkpointing for KL training")
 
     accum_steps = config.gradient_accumulation_steps
 
@@ -410,6 +425,9 @@ def train_gen_mlp(
             )
         else:
             logger.warning("Gen MLP epoch %d/%d - no valid training batches", epoch + 1, config.epochs)
+
+    if use_grad_ckpt:
+        model.gradient_checkpointing_disable()
 
     mlp.eval()
     return {"loss": history_loss}
