@@ -28,6 +28,7 @@ steering:
   scales: [1.0]
   use_mlp: true
   normalize_vector: false  # Keep original magnitude for proper steering effect
+  ablation: null  # Set to "noise" for random vector ablation control
   # enabled_variants: [baseline, steered, mlp_gen]  # Optional filter
 
   # Extraction batch size (inference only - can be larger)

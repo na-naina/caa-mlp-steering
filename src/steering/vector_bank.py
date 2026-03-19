@@ -39,6 +39,45 @@ class VectorBank:
         return (weights_t @ stacked)  # (dim,)
 
 
+def create_noise_bank(
+    base_vector: torch.Tensor,
+    vector_bank: VectorBank,
+    seed: int = 0,
+) -> tuple[torch.Tensor, VectorBank]:
+    """Replace real steering vectors with random noise of matching statistics.
+
+    Ablation control: same shape, norm, and bank structure, but no real
+    steering signal. If a noise-trained MLP doesn't improve truthfulness,
+    it proves the extracted vectors carry meaningful information.
+    """
+    rng = torch.Generator().manual_seed(seed)
+    dim = base_vector.shape[0]
+    base_norm = base_vector.norm().item()
+
+    # Random base vector with matching norm
+    noise_base = torch.randn(dim, generator=rng, dtype=base_vector.dtype)
+    noise_base = noise_base * (base_norm / noise_base.norm().item())
+
+    # Random bank vectors with matching norms
+    noise_vectors = []
+    for v in vector_bank.vectors:
+        nv = torch.randn(dim, generator=rng, dtype=v.dtype)
+        nv = nv * (v.norm().item() / nv.norm().item())
+        noise_vectors.append(nv)
+
+    noise_bank = VectorBank(
+        base_vector=noise_base,
+        vectors=noise_vectors,
+        indices=vector_bank.indices,
+    )
+
+    logger.info(
+        "Created noise bank: base_norm=%.4f, %d vectors (ablation control)",
+        base_norm, len(noise_vectors),
+    )
+    return noise_base, noise_bank
+
+
 class VectorBankBuilder:
     """Construct a bank of steering vectors from cached activations."""
 

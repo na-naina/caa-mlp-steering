@@ -158,6 +158,15 @@ def stage_extract(config: Dict, run_dir: Path, splits_file: Optional[Path] = Non
         sample_size_range=(bank_cfg.get("min_samples", 30), bank_cfg.get("max_samples", 50)),
     )
     
+    # Ablation: replace vectors with random noise (same shape/norm)
+    ablation = steering_cfg.get("ablation")
+    if ablation == "noise":
+        from src.steering.vector_bank import create_noise_bank
+        LOG.info("ABLATION MODE: replacing steering vectors with random noise")
+        base_vector, vector_bank = create_noise_bank(
+            base_vector, vector_bank, seed=config.get("run", {}).get("seed", 42)
+        )
+
     # Save vectors
     (run_dir / "vectors").mkdir(exist_ok=True)
     torch.save(base_vector.cpu(), run_dir / "vectors" / "base_vector.pt")
@@ -166,7 +175,7 @@ def stage_extract(config: Dict, run_dir: Path, splits_file: Optional[Path] = Non
         "vectors": [v.cpu() for v in vector_bank.vectors],
         "indices": vector_bank.indices,
     }, run_dir / "vectors" / "vector_bank.pt")
-    
+
     return {
         "model": model, "tokenizer": tokenizer, "device": device,
         "dataset": dataset, "splits": splits, "vector_bank": vector_bank,

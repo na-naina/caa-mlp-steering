@@ -1,0 +1,26 @@
+# Llama2-7B-chat - Layer 8, bottleneck=16
+# ABLATION: Random noise vectors instead of extracted CAA vectors
+# Same architecture/training, but no real steering signal.
+# If this doesn't improve truthfulness, it proves the vectors carry information.
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 8
+  family: llama2
+
+mlp:
+  architecture:
+    bottleneck_dim: 16
+  mc_training:
+    lr: 5.0e-4
+  gen_training:
+    lr: 5.0e-4
+
+steering:
+  ablation: noise
+  enabled_variants: [mlp_mc]
+
+slurm:
+  gpus: 1
+  mem_gb: 40
+  time: "04:00:00"
