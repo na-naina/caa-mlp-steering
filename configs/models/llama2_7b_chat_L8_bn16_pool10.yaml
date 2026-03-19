@@ -1,0 +1,27 @@
+# Pool size ablation: 10 examples for CAA extraction (vs default 100)
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 8
+  family: llama2
+
+mlp:
+  architecture:
+    bottleneck_dim: 16
+  mc_training:
+    lr: 5.0e-4
+  gen_training:
+    lr: 5.0e-4
+
+truthfulqa:
+  split:
+    steering_pool: 10
+    train: 309
+    test: 0
+
+steering:
+  vector_bank:
+    num_vectors: 2
+    min_samples: 3
+    max_samples: 5
+  enabled_variants: [mlp_mc]
