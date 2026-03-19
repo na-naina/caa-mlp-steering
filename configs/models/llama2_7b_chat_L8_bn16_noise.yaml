@@ -13,8 +13,10 @@ mlp:
     bottleneck_dim: 16
   mc_training:
     lr: 5.0e-4
+    batch_size: 4
   gen_training:
     lr: 5.0e-4
+    batch_size: 4
 
 steering:
   ablation: noise
