@@ -1,0 +1,27 @@
+# Llama2-7B-chat - Layer 8, bottleneck=16, lr=5e-4
+# With KL divergence regularization (output distribution preservation)
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 8
+  family: llama2
+
+mlp:
+  architecture:
+    bottleneck_dim: 16
+  mc_training:
+    lr: 5.0e-4
+    mse_reg: 1.0e-2
+    kl_reg: 0.1
+  gen_training:
+    lr: 5.0e-4
+    mse_reg: 1.0e-2
+    kl_reg: 0.1
+
+steering:
+  enabled_variants: [mlp_mc]
+
+slurm:
+  gpus: 1
+  mem_gb: 40
+  time: "04:00:00"

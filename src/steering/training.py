@@ -28,6 +28,7 @@ class MCTrainingConfig:
     weight_decay: float = 0.0
     grad_clip: float = 1.0
     mse_reg: float = 1e-2  # MSE regularization to keep MLP close to identity
+    kl_reg: float = 0.0    # KL divergence regularization (output distribution preservation)
     gradient_accumulation_steps: int = 1  # Accumulate gradients over N steps
 
 
@@ -40,6 +41,7 @@ class GenTrainingConfig:
     weight_decay: float = 0.0
     grad_clip: float = 1.0
     mse_reg: float = 1e-2  # MSE regularization to keep MLP close to identity
+    kl_reg: float = 0.0    # KL divergence regularization (output distribution preservation)
     gradient_accumulation_steps: int = 1  # Accumulate gradients over N steps
 
 
@@ -175,9 +177,28 @@ def train_mc_mlp(
             margin_values = logprob_incorrect - logprob_correct + config.margin
             hinge_loss = F.relu(margin_values).mean()
 
-            # Add MSE regularization: encourage MLP to stay close to identity
+            # MSE regularization: encourage MLP to stay close to identity
             mse_loss = F.mse_loss(transformed, vector)
-            loss = hinge_loss + config.mse_reg * mse_loss
+
+            # KL divergence regularization: preserve output distribution
+            kl_loss = torch.tensor(0.0, device=primary_device)
+            if config.kl_reg > 0:
+                # Baseline forward (no steering, detached)
+                with torch.no_grad():
+                    baseline_out = model(input_ids=input_ids_c, attention_mask=attn_c)
+                    baseline_probs = F.softmax(baseline_out.logits[:, :-1, :], dim=-1)
+
+                # Steered forward (grad flows through MLP via steering hook)
+                with steering_hook(model, layer_index, transformed, scale=1.0):
+                    steered_out = model(input_ids=input_ids_c, attention_mask=attn_c)
+                    steered_log_probs = F.log_softmax(steered_out.logits[:, :-1, :], dim=-1)
+
+                # KL(baseline || steered) masked to answer positions only
+                kl_per_token = F.kl_div(steered_log_probs, baseline_probs, reduction='none').sum(-1)
+                kl_masked = (kl_per_token * mask_c).sum() / mask_c.sum().clamp(min=1)
+                kl_loss = kl_masked
+
+            loss = hinge_loss + config.mse_reg * mse_loss + config.kl_reg * kl_loss
 
             # Scale loss for gradient accumulation
             scaled_loss = loss / accum_steps
@@ -313,9 +334,25 @@ def train_gen_mlp(
 
             nll_loss = -avg_logprob.mean()
 
-            # Add MSE regularization: encourage MLP to stay close to identity
+            # MSE regularization: encourage MLP to stay close to identity
             mse_loss = F.mse_loss(transformed, vector)
-            loss = nll_loss + config.mse_reg * mse_loss
+
+            # KL divergence regularization: preserve output distribution
+            kl_loss = torch.tensor(0.0, device=primary_device)
+            if config.kl_reg > 0:
+                with torch.no_grad():
+                    baseline_out = model(input_ids=input_ids, attention_mask=attention_mask)
+                    baseline_probs = F.softmax(baseline_out.logits[:, :-1, :], dim=-1)
+
+                with steering_hook(model, layer_index, transformed, scale=1.0):
+                    steered_out = model(input_ids=input_ids, attention_mask=attention_mask)
+                    steered_log_probs = F.log_softmax(steered_out.logits[:, :-1, :], dim=-1)
+
+                kl_per_token = F.kl_div(steered_log_probs, baseline_probs, reduction='none').sum(-1)
+                kl_masked = (kl_per_token * answer_mask).sum() / answer_mask.sum().clamp(min=1)
+                kl_loss = kl_masked
+
+            loss = nll_loss + config.mse_reg * mse_loss + config.kl_reg * kl_loss
 
             # Scale loss for gradient accumulation
             scaled_loss = loss / accum_steps
