@@ -1,0 +1,20 @@
+# Train with individual per-example vectors (no averaging, no Dirichlet)
+# Each step picks one random (pos_i - neg_i) vector
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 8
+  family: llama2
+
+mlp:
+  architecture:
+    bottleneck_dim: 16
+  mc_training:
+    lr: 5.0e-4
+  gen_training:
+    lr: 5.0e-4
+
+steering:
+  vector_bank:
+    mode: individual
+  enabled_variants: [mlp_mc]

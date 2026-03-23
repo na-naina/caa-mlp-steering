@@ -152,11 +152,17 @@ def stage_extract(config: Dict, run_dir: Path, splits_file: Optional[Path] = Non
     base_vector = compute_caa_vector(pos_acts, neg_acts, normalize=normalize)
     
     bank_cfg = steering_cfg.get("vector_bank", {})
-    builder = VectorBankBuilder(pos_acts, neg_acts, normalize=normalize, seed=config.get("run", {}).get("seed", 42))
-    vector_bank = builder.build(
-        num_vectors=bank_cfg.get("num_vectors", 12),
-        sample_size_range=(bank_cfg.get("min_samples", 30), bank_cfg.get("max_samples", 50)),
-    )
+    bank_mode = bank_cfg.get("mode", "subset")  # "subset" (default), "individual", or "none"
+
+    if bank_mode == "individual":
+        from src.steering.vector_bank import create_individual_bank
+        vector_bank = create_individual_bank(pos_acts, neg_acts)
+    else:
+        builder = VectorBankBuilder(pos_acts, neg_acts, normalize=normalize, seed=config.get("run", {}).get("seed", 42))
+        vector_bank = builder.build(
+            num_vectors=bank_cfg.get("num_vectors", 12),
+            sample_size_range=(bank_cfg.get("min_samples", 30), bank_cfg.get("max_samples", 50)),
+        )
     
     # Ablation: replace vectors with random noise (same shape/norm)
     ablation = steering_cfg.get("ablation")

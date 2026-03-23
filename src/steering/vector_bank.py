@@ -39,6 +39,33 @@ class VectorBank:
         return (weights_t @ stacked)  # (dim,)
 
 
+def create_individual_bank(
+    positive_activations: torch.Tensor,
+    negative_activations: torch.Tensor,
+) -> VectorBank:
+    """Build a bank of individual per-example steering vectors.
+
+    Each vector is (pos_i - neg_i) for a single example. No averaging,
+    no subsets, no Dirichlet. Maximum diversity, minimal machinery.
+    The base_vector is still the mean for use at inference time.
+    """
+    diffs = positive_activations - negative_activations  # (N, hidden_dim)
+    base = diffs.mean(dim=0)
+    vectors = [diffs[i] for i in range(len(diffs))]
+    indices = [[i] for i in range(len(diffs))]
+
+    logger.info(
+        "Built individual vector bank: %d per-example vectors (no averaging)",
+        len(vectors),
+    )
+
+    # Override sample_interpolated to just pick one random vector
+    # (Dirichlet over 100 individual diffs would average them out)
+    bank = VectorBank(base_vector=base, vectors=vectors, indices=indices)
+    bank.sample_interpolated = bank.sample
+    return bank
+
+
 def create_noise_bank(
     base_vector: torch.Tensor,
     vector_bank: VectorBank,
