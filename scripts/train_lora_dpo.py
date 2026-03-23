@@ -129,20 +129,19 @@ def train_lora_dpo(model_name, output_dir, pairs, num_epochs=2, lr=5e-5, lora_r=
     return str(lora_output)
 
 
-def run_steering_pipeline(model_name, lora_path, output_dir, seed=42):
+def run_steering_pipeline(model_name, lora_path, output_dir, seed=42, bottleneck_dim=8):
     """Run our full steering pipeline on the LoRA-finetuned model."""
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     from src.data.truthfulqa import TruthfulQADatasetManager
     from src.steering.extract import ActivationExtractor, compute_caa_vector
-    from src.steering.vector_bank import VectorBankBuilder
+    from src.steering.vector_bank import create_individual_bank
     from src.steering.mlp import SteeringMLP
     from src.steering.training import MCTrainingConfig, GenTrainingConfig, train_mc_mlp, train_gen_mlp
     from src.evaluation.truthfulqa import evaluate_multiple_choice, evaluate_generation
 
     layer_index = 8
-    bottleneck_dim = 16
     run_dir = Path(output_dir) / "steering_results"
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -184,8 +183,7 @@ def run_steering_pipeline(model_name, lora_path, output_dir, seed=42):
     pos_acts, neg_acts = pos_acts[pos_mask], neg_acts[neg_mask]
 
     base_vector = compute_caa_vector(pos_acts, neg_acts, normalize=False)
-    builder = VectorBankBuilder(pos_acts, neg_acts, normalize=False, seed=seed)
-    vector_bank = builder.build(num_vectors=12, sample_size_range=(30, 50))
+    vector_bank = create_individual_bank(pos_acts, neg_acts)
 
     # Save vectors
     (run_dir / "vectors").mkdir(exist_ok=True)
@@ -253,6 +251,7 @@ def main():
     parser.add_argument("--lora-r", type=int, default=8)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--bottleneck-dim", type=int, default=8)
     parser.add_argument("--skip-lora", action="store_true",
                         help="Skip LoRA training, reuse existing adapter")
     parser.add_argument("--seed", type=int, default=42)
@@ -275,7 +274,8 @@ def main():
         LOG.info("Skipping LoRA training, using existing adapter at %s", lora_path)
 
     # Step 3: Run steering pipeline on LoRA model
-    run_steering_pipeline(args.model, str(lora_path), str(args.output_dir), seed=args.seed)
+    run_steering_pipeline(args.model, str(lora_path), str(args.output_dir),
+                          seed=args.seed, bottleneck_dim=args.bottleneck_dim)
 
 
 if __name__ == "__main__":
