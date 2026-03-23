@@ -256,7 +256,9 @@ def stage_generate(config: Dict, run_dir: Path, ctx: Dict) -> None:
     model, tokenizer, device = ctx["model"], ctx["tokenizer"], ctx["device"]
     dataset, splits = ctx["dataset"], ctx["splits"]
 
-    hidden_dim = model.config.hidden_size
+    # Handle nested configs (e.g., Gemma3 uses text_config.hidden_size)
+    cfg = model.config
+    hidden_dim = getattr(cfg, "hidden_size", None) or getattr(cfg.text_config, "hidden_size", None)
     param_dtype = next(model.parameters()).dtype
     mlp_cfg = config.get("mlp", {})
     arch_cfg = mlp_cfg.get("architecture", {})
