@@ -1,0 +1,25 @@
+# Gemma3-27B-IT with bn=8, individual bank
+# Best config from Llama2 experiments applied to larger model
+
+model:
+  name: google/gemma-3-27b-it
+  layer: 32
+  family: gemma3
+  dtype: bfloat16
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    lr: 5.0e-4
+    batch_size: 2
+    gradient_accumulation_steps: 4
+  gen_training:
+    lr: 5.0e-4
+    batch_size: 2
+    gradient_accumulation_steps: 4
+
+steering:
+  vector_bank:
+    mode: individual
+  enabled_variants: [mlp_mc]
