@@ -30,6 +30,7 @@ class MCTrainingConfig:
     mse_reg: float = 1e-2  # MSE regularization to keep MLP close to identity
     kl_reg: float = 0.0    # KL divergence regularization (output distribution preservation)
     gradient_accumulation_steps: int = 1  # Accumulate gradients over N steps
+    gradient_checkpointing: bool = False  # Enable for large models (saves memory, ~30% slower)
 
 
 @dataclass
@@ -43,6 +44,7 @@ class GenTrainingConfig:
     mse_reg: float = 1e-2  # MSE regularization to keep MLP close to identity
     kl_reg: float = 0.0    # KL divergence regularization (output distribution preservation)
     gradient_accumulation_steps: int = 1  # Accumulate gradients over N steps
+    gradient_checkpointing: bool = False
 
 
 def _select_mc_answers(dataset, item: dict) -> tuple[str, str] | None:
@@ -100,12 +102,12 @@ def train_mc_mlp(
     model.eval()
 
     # Memory optimizations for KL training
-    use_grad_ckpt = config.kl_reg > 0 and hasattr(model, 'gradient_checkpointing_enable')
+    use_grad_ckpt = (config.kl_reg > 0 or config.gradient_checkpointing) and hasattr(model, 'gradient_checkpointing_enable')
     old_use_cache = getattr(model.config, 'use_cache', True)
     if use_grad_ckpt:
         model.gradient_checkpointing_enable()
-        model.config.use_cache = False  # Required for gradient checkpointing & saves ~4GB KV cache
-        logger.info("Enabled gradient checkpointing + disabled KV cache for KL training")
+        model.config.use_cache = False
+        logger.info("Enabled gradient checkpointing + disabled KV cache")
 
     accum_steps = config.gradient_accumulation_steps
 
