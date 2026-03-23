@@ -40,8 +40,8 @@ LOG = logging.getLogger(__name__)
 def parse_args():
     p = argparse.ArgumentParser(description="CAA MLP Steering")
     p.add_argument("--model", required=True, help="Model config name (e.g., gemma3_12b_it)")
-    p.add_argument("--stage", choices=["all", "train", "eval", "extract"], default="all",
-                   help="Pipeline stage: all (default), train (extract+train+generate), eval (judge only), extract (vectors only)")
+    p.add_argument("--stage", choices=["all", "train", "train-only", "generate", "eval", "extract"], default="all",
+                   help="Pipeline stage: all, train (extract+train+generate), train-only (extract+train, no generation), generate (from existing run-dir), eval (judge only), extract (vectors only)")
     p.add_argument("--run-dir", type=Path, help="Resume from existing run directory (for eval stage)")
     p.add_argument("--splits-file", type=Path, help="Custom splits JSON file (for 2-fold CV)")
     p.add_argument("--output-dir", type=Path, help="Custom output directory")
@@ -245,12 +245,51 @@ def stage_train(config: Dict, run_dir: Path, ctx: Dict) -> Dict:
     
     torch.save(mlp_mc.state_dict(), run_dir / "vectors" / "mlp_mc_state_dict.pt")
     torch.save(mlp_gen.state_dict(), run_dir / "vectors" / "mlp_gen_state_dict.pt")
-    
-    # Generate responses for all variants
+
+    return {**ctx, "mlp_mc": mlp_mc, "mlp_gen": mlp_gen}
+
+
+def stage_generate(config: Dict, run_dir: Path, ctx: Dict) -> None:
+    """Stage 2b: Generate responses using trained MLPs (can run on a separate machine)."""
+    LOG.info("=== STAGE: GENERATE ===")
+
+    model, tokenizer, device = ctx["model"], ctx["tokenizer"], ctx["device"]
+    dataset, splits = ctx["dataset"], ctx["splits"]
+
+    hidden_dim = model.config.hidden_size
+    param_dtype = next(model.parameters()).dtype
+    mlp_cfg = config.get("mlp", {})
+    arch_cfg = mlp_cfg.get("architecture", {})
+    bn_dim = arch_cfg.get("bottleneck_dim")
+
+    # Load trained MLPs from vectors dir
+    mlp_mc = SteeringMLP(
+        input_dim=hidden_dim, bottleneck_dim=bn_dim,
+        hidden_multiplier=arch_cfg.get("hidden_multiplier", 2.0),
+        dropout=arch_cfg.get("dropout", 0.1),
+    ).to(device, dtype=param_dtype)
+    mlp_mc.load_state_dict(torch.load(run_dir / "vectors" / "mlp_mc_state_dict.pt", map_location="cpu"))
+    mlp_mc.eval()
+
+    mlp_gen = SteeringMLP(
+        input_dim=hidden_dim, bottleneck_dim=bn_dim,
+        hidden_multiplier=arch_cfg.get("hidden_multiplier", 2.0),
+        dropout=arch_cfg.get("dropout", 0.1),
+    ).to(device, dtype=param_dtype)
+    mlp_gen.load_state_dict(torch.load(run_dir / "vectors" / "mlp_gen_state_dict.pt", map_location="cpu"))
+    mlp_gen.eval()
+
+    # Load vector bank
+    bank_data = torch.load(run_dir / "vectors" / "vector_bank.pt", map_location="cpu")
+    from src.steering.vector_bank import VectorBank
+    vector_bank = VectorBank(
+        base_vector=bank_data["base_vector"],
+        vectors=bank_data.get("vectors", []),
+        indices=bank_data.get("indices", []),
+    )
+
     LOG.info("Generating responses")
     _generate_all_responses(config, run_dir, model, tokenizer, device, dataset, splits, vector_bank, mlp_mc, mlp_gen)
-    
-    return {**ctx, "mlp_mc": mlp_mc, "mlp_gen": mlp_gen}
 
 
 def _generate_all_responses(config, run_dir, model, tokenizer, device, dataset, splits, vector_bank, mlp_mc, mlp_gen):
@@ -388,20 +427,55 @@ def main():
     dump_config(config, run_dir / "config.yaml")
     
     # Execute stages
-    if args.stage in ["all", "train", "extract"]:
+    if args.stage in ["all", "train", "train-only", "extract"]:
         ctx = stage_extract(config, run_dir, splits_file=args.splits_file)
-        
-        if args.stage in ["all", "train"]:
+
+        if args.stage in ["all", "train", "train-only"]:
             ctx = stage_train(config, run_dir, ctx)
-            
-            # Free model before eval
+
+            if args.stage != "train-only":
+                stage_generate(config, run_dir, ctx)
+
             del ctx["model"]
             import gc; gc.collect()
             torch.cuda.empty_cache()
-    
+
+    if args.stage == "generate":
+        # Generate from existing run dir (e.g., on a different machine)
+        if not args.run_dir:
+            LOG.error("--run-dir required for generate stage")
+            return 1
+        loaded = load_causal_model(
+            config["model"]["name"],
+            dtype=config["model"].get("dtype", "bfloat16"),
+            device_map=config["model"].get("device_map", "auto"),
+        )
+        tqa_cfg = config.get("truthfulqa", {})
+        dataset = TruthfulQADatasetManager(
+            dataset_name=tqa_cfg.get("dataset_name", "truthful_qa"),
+            dataset_config=tqa_cfg.get("dataset_config", "generation"),
+            cache_dir=tqa_cfg.get("cache_dir"),
+            seed=config.get("run", {}).get("seed", 42),
+        )
+        splits_file = run_dir / "metadata" / "splits.json"
+        with splits_file.open() as f:
+            splits_dict = json.load(f)
+        from src.data.truthfulqa import TruthfulQAPipelineSplits
+        splits = TruthfulQAPipelineSplits(
+            steering_pool=splits_dict["steering_pool"],
+            train=splits_dict["train"],
+            test=splits_dict["test"],
+            val=splits_dict.get("val", []),
+        )
+        ctx = {
+            "model": loaded.model, "tokenizer": loaded.tokenizer,
+            "device": loaded.primary_device, "dataset": dataset, "splits": splits,
+        }
+        stage_generate(config, run_dir, ctx)
+
     if args.stage in ["all", "eval"]:
         stage_eval(config, run_dir)
-    
+
     LOG.info("Done! Results in: %s", run_dir)
     return 0
 
