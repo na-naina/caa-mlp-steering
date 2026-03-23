@@ -1,0 +1,23 @@
+# Llama2-7B-chat - Layer 8, bottleneck=16
+# NO VECTOR BANK — train with base vector only (no Dirichlet sampling)
+# Tests whether the bank/sampling machinery matters
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 8
+  family: llama2
+
+mlp:
+  architecture:
+    bottleneck_dim: 16
+  mc_training:
+    lr: 5.0e-4
+  gen_training:
+    lr: 5.0e-4
+
+steering:
+  vector_bank:
+    num_vectors: 0
+    min_samples: 30
+    max_samples: 50
+  enabled_variants: [mlp_mc]
