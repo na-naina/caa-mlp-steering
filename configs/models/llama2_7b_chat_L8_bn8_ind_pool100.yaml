@@ -1,0 +1,24 @@
+# bn=8, individual bank, pool=100
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 8
+  family: llama2
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    lr: 5.0e-4
+  gen_training:
+    lr: 5.0e-4
+
+truthfulqa:
+  split:
+    steering_pool: 100
+    train: 309
+    test: 0
+
+steering:
+  vector_bank:
+    mode: individual
+  enabled_variants: [mlp_mc]
