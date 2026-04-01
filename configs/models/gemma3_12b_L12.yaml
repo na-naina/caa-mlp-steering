@@ -10,12 +10,12 @@ mlp:
     bottleneck_dim: 8
   mc_training:
     lr: 5.0e-4
-    batch_size: 2
-    gradient_accumulation_steps: 4
+    batch_size: 1
+    gradient_accumulation_steps: 8
   gen_training:
     lr: 5.0e-4
-    batch_size: 2
-    gradient_accumulation_steps: 4
+    batch_size: 1
+    gradient_accumulation_steps: 8
 
 steering:
   vector_bank:
