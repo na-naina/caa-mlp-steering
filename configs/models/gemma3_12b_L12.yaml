@@ -1,0 +1,23 @@
+# Gemma3-12B-IT with bn=8, individual bank
+model:
+  name: google/gemma-3-12b-it
+  layer: 12
+  family: gemma3
+  dtype: bfloat16
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    lr: 5.0e-4
+    batch_size: 2
+    gradient_accumulation_steps: 4
+  gen_training:
+    lr: 5.0e-4
+    batch_size: 2
+    gradient_accumulation_steps: 4
+
+steering:
+  vector_bank:
+    mode: individual
+  enabled_variants: [mlp_mc]
