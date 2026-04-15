@@ -80,6 +80,12 @@ class TruthfulQADatasetManager:
 
         If *test_size* is 0, test gets all remaining items after
         steering_pool + train + val are allocated.
+
+        Allocation order: *test is reserved first* from the tail of the
+        shuffled index array, then pool / train / val are taken from the
+        head. This ensures that the test set is stable across configurations
+        that vary `steering_pool_size` or `train_size` (with the same seed),
+        making pool-size and training-size sweeps directly comparable.
         """
         fixed = steering_pool_size + train_size + val_size
         if test_size == 0:
@@ -95,18 +101,18 @@ class TruthfulQADatasetManager:
         indices = np.arange(self.total_examples)
         self.rng.shuffle(indices)
 
-        cursor = 0
+        # Reserve test from the tail first — stable across pool/train sweeps.
+        test = indices[self.total_examples - test_size : self.total_examples].tolist()
+        remainder = indices[: self.total_examples - test_size]
 
-        steering_pool = indices[cursor : cursor + steering_pool_size].tolist()
+        cursor = 0
+        steering_pool = remainder[cursor : cursor + steering_pool_size].tolist()
         cursor += steering_pool_size
 
-        train = indices[cursor : cursor + train_size].tolist()
+        train = remainder[cursor : cursor + train_size].tolist()
         cursor += train_size
 
-        val = indices[cursor : cursor + val_size].tolist() if val_size else []
-        cursor += val_size
-
-        test = indices[cursor : cursor + test_size].tolist()
+        val = remainder[cursor : cursor + val_size].tolist() if val_size else []
 
         logger.info(
             "Constructed pipeline splits (pool=%d, train=%d, val=%d, test=%d)",
