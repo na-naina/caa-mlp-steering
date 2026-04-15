@@ -1,4 +1,4 @@
-# Gemma3-12B-IT with bn=8, individual bank
+# Gemma3-12B-IT with bn=8, lower LR (5e-5 vs 5e-4)
 model:
   name: google/gemma-3-12b-it
   layer: 24
@@ -9,15 +9,15 @@ mlp:
   architecture:
     bottleneck_dim: 8
   mc_training:
-    lr: 5.0e-4
+    lr: 5.0e-5
     batch_size: 1
     gradient_accumulation_steps: 8
   gen_training:
-    lr: 5.0e-4
+    lr: 5.0e-5
     batch_size: 1
     gradient_accumulation_steps: 8
 
 steering:
   vector_bank:
     mode: individual
-  enabled_variants: [baseline, steered, mlp_mc]
+  enabled_variants: [mlp_mc]

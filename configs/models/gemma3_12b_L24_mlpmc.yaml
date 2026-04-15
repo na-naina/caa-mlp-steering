@@ -1,0 +1,15 @@
+# Gemma3-12B L24 - MLP MC only (for parallel generation)
+model:
+  name: google/gemma-3-12b-it
+  layer: 24
+  family: gemma3
+  dtype: bfloat16
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+
+steering:
+  vector_bank:
+    mode: individual
+  enabled_variants: [mlp_mc]

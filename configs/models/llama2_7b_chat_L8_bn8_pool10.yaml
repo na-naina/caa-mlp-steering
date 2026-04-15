@@ -16,7 +16,7 @@ truthfulqa:
   split:
     steering_pool: 10
     train: 309
-    test: 0
+    test: 408
 
 steering:
   vector_bank:
