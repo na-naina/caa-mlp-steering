@@ -46,8 +46,6 @@ protocol as the RaLFiT paper).
 MAST is the only multi-seed entry (mean ± std over 10 seeds); other rows are
 single-run numbers reproduced from Li et al. 2025 (RaLFiT, ACL 2025), Tables 1–2.
 
-![Main results](assets/figures/main_results.png)
-
 ## Bottleneck dimension: k=8 is the sweet spot
 
 The MLP's bottleneck width controls a trade-off between truthfulness and
