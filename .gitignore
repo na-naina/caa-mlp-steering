@@ -56,3 +56,10 @@ openaikey.txt
 *.safetensors
 analysis_results/
 legacy/local_results/
+paper/ukrainian practice example/
+
+# Thesis / paper drafts: kept private, not for the public repo
+paper/drafts/
+paper/figures/
+paper/legacy/
+paper/templates/
