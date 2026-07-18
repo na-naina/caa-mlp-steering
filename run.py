@@ -46,6 +46,10 @@ def parse_args():
     p.add_argument("--splits-file", type=Path, help="Custom splits JSON file (for 2-fold CV)")
     p.add_argument("--output-dir", type=Path, help="Custom output directory")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--torch-seed", type=int, default=None,
+                   help="Seed for torch/np/random RNGs (MLP init, dropout, decoding). "
+                        "Defaults to --seed. Set separately to vary training randomness "
+                        "while keeping the --seed-determined data splits fixed.")
     p.add_argument("--verbose", action="store_true")
     return p.parse_args()
 
@@ -410,7 +414,20 @@ def main():
     
     config = load_config(base_config, overrides=[model_config])
     config.setdefault("run", {})["seed"] = args.seed
-    
+
+    # Seed all RNGs (MLP init, dropout, sampled decoding). Data splits are
+    # seeded separately inside TruthfulQADatasetManager from run.seed.
+    import random
+
+    import numpy as np
+
+    torch_seed = args.torch_seed if args.torch_seed is not None else args.seed
+    config["run"]["torch_seed"] = torch_seed
+    random.seed(torch_seed)
+    np.random.seed(torch_seed)
+    torch.manual_seed(torch_seed)
+    torch.cuda.manual_seed_all(torch_seed)
+
     setup_environment(config)
     
     # Determine run directory

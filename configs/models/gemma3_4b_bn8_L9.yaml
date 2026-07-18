@@ -1,0 +1,19 @@
+# Gemma3-4B-IT, paper recipe (bn=8, no bank), layer sweep candidate
+model:
+  name: google/gemma-3-4b-it
+  layer: 9
+  family: gemma3
+  dtype: bfloat16
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    lr: 5.0e-4
+  gen_training:
+    lr: 5.0e-4
+
+steering:
+  vector_bank:
+    num_vectors: 0
+  enabled_variants: [baseline, steered, mlp_mc]

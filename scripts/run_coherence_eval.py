@@ -113,12 +113,14 @@ def main():
         tokenizer = AutoTokenizer.from_pretrained(args.model)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        lm = HFLM(pretrained=merged, tokenizer=tokenizer, dtype="bfloat16", batch_size=args.batch_size)
+        lm = HFLM(pretrained=merged, tokenizer=tokenizer, dtype="bfloat16", batch_size=args.batch_size,
+                  parallelize=True)
     else:
         lm = HFLM(
             pretrained=args.model,
             dtype="bfloat16",
             batch_size=args.batch_size,
+            parallelize=True,
         )
 
     # Phase 1: Baseline evaluation

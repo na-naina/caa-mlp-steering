@@ -1,8 +1,13 @@
-# Core dependencies for CAA experiments
-torch>=2.1.0
-transformers>=4.50.0  # Required for Gemma-3 models
-datasets>=2.14.0
+# Core dependencies for CAA experiments.
+# Core stack is pinned to the versions validated in the July 2026 reproduction
+# (torch 2.13 changed unseeded training numerics; datasets>=4.5 rejects the bare
+# `truthful_qa` dataset id used in configs).
+torch==2.9.1
+transformers==4.57.3
+datasets==4.4.2
 accelerate>=0.25.0
+huggingface_hub==0.36.0
+tokenizers==0.22.2
 pyyaml>=6.0.0
 
 # Data processing and analysis
@@ -15,8 +20,16 @@ tqdm>=4.66.0
 sentencepiece>=0.1.99
 protobuf>=4.24.0
 
-# HuggingFace utilities
-huggingface_hub>=0.19.0
+# Judged evaluation (scripts/evaluate_with_gpt_judge.py, judge fine-tuning)
+openai>=1.40.0
+python-dotenv>=1.0.0
+
+# MC1/MC2 + capability benchmarks (scripts/eval_mc_harness.py, run_coherence_eval.py)
+lm-eval>=0.4.12
+
+# LoRA/DPO baselines (scripts/train_lora_dpo.py, eval_lora_only.py)
+peft>=0.10.0
+trl>=0.9.0
 
 # Optional: for large model handling
 bitsandbytes>=0.41.0
@@ -29,5 +42,5 @@ seaborn>=0.12.0
 tabulate>=0.9.0
 sentence-transformers>=3.0.0
 
-# Evaluation metrics
-bleurt @ git+https://github.com/google-research/bleurt.git
+# Optional legacy evaluation metric (unused in the paper pipeline; requires TensorFlow)
+# bleurt @ git+https://github.com/google-research/bleurt.git
