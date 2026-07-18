@@ -1,0 +1,20 @@
+# Headline recipe + gradient checkpointing (single-card training on 32GB)
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 8
+  family: llama2
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    lr: 5.0e-4
+    gradient_checkpointing: true
+  gen_training:
+    lr: 5.0e-4
+    gradient_checkpointing: true
+
+steering:
+  vector_bank:
+    num_vectors: 0
+  enabled_variants: [baseline, steered, mlp_mc]

@@ -12,13 +12,13 @@ mlp:
   mc_training:
     gradient_checkpointing: true
     lr: 5.0e-4
-    batch_size: 2
-    gradient_accumulation_steps: 4
-    steps_per_epoch: 200
+    batch_size: 1
+    gradient_accumulation_steps: 8
+    steps_per_epoch: 400
   gen_training:
     lr: 5.0e-4
-    batch_size: 2
-    gradient_accumulation_steps: 4
+    batch_size: 1
+    gradient_accumulation_steps: 8
 
 steering:
   vector_bank:
