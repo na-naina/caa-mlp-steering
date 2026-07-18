@@ -1,0 +1,32 @@
+# bn=8 recipe on the CAA hallucination behavioral dataset (Rimsky et al.)
+# a+ = behavior-matching option text; a- = the other option (A/B contrastive)
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 8
+  family: llama2
+
+task:
+  name: behavior_ab
+  behavior: hallucination
+  cache_dir: cache/behavior_ab
+  split:
+    steering_pool: 100
+    train: 309
+    test: 408
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    lr: 5.0e-4
+  gen_training:
+    lr: 5.0e-4
+
+steering:
+  vector_bank:
+    num_vectors: 0
+  enabled_variants: [mlp_mc]
+
+evaluation:
+  preset: null  # No TruthfulQA few-shot primer for non-TQA tasks

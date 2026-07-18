@@ -6,6 +6,7 @@ Usage:
     python run.py --model gemma3_12b_it --stage train   # Extract + train MLPs + generate
     python run.py --model gemma3_12b_it --stage eval    # Judge existing outputs
     python run.py --model gemma3_12b_it --stage extract # Only extract vectors
+    python run.py --model llama2_7b_chat_L8_bn8_popqa   # Non-TruthfulQA task (task: block in config)
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from typing import Dict, Optional
 
 import torch
 
-from src.data.truthfulqa import TruthfulQADatasetManager
+from src.data.contrastive_task import TASK_NAMES, create_task_dataset, get_split_config
 from src.evaluation.judge import LLMBinaryJudge
 from src.evaluation.truthfulqa import evaluate_generation, evaluate_multiple_choice
 from src.models.loader import load_causal_model
@@ -42,6 +43,8 @@ def parse_args():
     p.add_argument("--model", required=True, help="Model config name (e.g., gemma3_12b_it)")
     p.add_argument("--stage", choices=["all", "train", "train-only", "generate", "eval", "extract"], default="all",
                    help="Pipeline stage: all, train (extract+train+generate), train-only (extract+train, no generation), generate (from existing run-dir), eval (judge only), extract (vectors only)")
+    p.add_argument("--task", choices=list(TASK_NAMES), default=None,
+                   help="Task dataset (overrides config task.name; default: truthfulqa)")
     p.add_argument("--run-dir", type=Path, help="Resume from existing run directory (for eval stage)")
     p.add_argument("--splits-file", type=Path, help="Custom splits JSON file (for 2-fold CV)")
     p.add_argument("--output-dir", type=Path, help="Custom output directory")
@@ -91,14 +94,8 @@ def stage_extract(config: Dict, run_dir: Path, splits_file: Optional[Path] = Non
     model, tokenizer, device = loaded.model, loaded.tokenizer, loaded.primary_device
     model.eval()
 
-    # Load dataset
-    tqa_cfg = config.get("truthfulqa", {})
-    dataset = TruthfulQADatasetManager(
-        dataset_name=tqa_cfg.get("dataset_name", "truthful_qa"),
-        dataset_config=tqa_cfg.get("dataset_config", "generation"),
-        cache_dir=tqa_cfg.get("cache_dir"),
-        seed=config.get("run", {}).get("seed", 42),
-    )
+    # Load dataset (task selected via config task.name; defaults to truthfulqa)
+    dataset = create_task_dataset(config, seed=config.get("run", {}).get("seed", 42))
 
     # Load splits from file or create new ones
     if splits_file and splits_file.exists():
@@ -115,7 +112,7 @@ def stage_extract(config: Dict, run_dir: Path, splits_file: Optional[Path] = Non
         LOG.info("Loaded splits: steering_pool=%d, train=%d, test=%d",
                  len(splits.steering_pool), len(splits.train), len(splits.test))
     else:
-        split_cfg = tqa_cfg.get("split", {})
+        split_cfg = get_split_config(config)
         splits = dataset.create_pipeline_splits(
             steering_pool_size=split_cfg.get("steering_pool", 100),
             train_size=split_cfg.get("train", 309),
@@ -415,6 +412,10 @@ def main():
     config = load_config(base_config, overrides=[model_config])
     config.setdefault("run", {})["seed"] = args.seed
 
+    # --task overrides the config's task.name (default stays truthfulqa)
+    if args.task:
+        config.setdefault("task", {})["name"] = args.task
+
     # Seed all RNGs (MLP init, dropout, sampled decoding). Data splits are
     # seeded separately inside TruthfulQADatasetManager from run.seed.
     import random
@@ -469,13 +470,7 @@ def main():
             dtype=config["model"].get("dtype", "bfloat16"),
             device_map=config["model"].get("device_map", "auto"),
         )
-        tqa_cfg = config.get("truthfulqa", {})
-        dataset = TruthfulQADatasetManager(
-            dataset_name=tqa_cfg.get("dataset_name", "truthful_qa"),
-            dataset_config=tqa_cfg.get("dataset_config", "generation"),
-            cache_dir=tqa_cfg.get("cache_dir"),
-            seed=config.get("run", {}).get("seed", 42),
-        )
+        dataset = create_task_dataset(config, seed=config.get("run", {}).get("seed", 42))
         splits_file = run_dir / "metadata" / "splits.json"
         with splits_file.open() as f:
             splits_dict = json.load(f)

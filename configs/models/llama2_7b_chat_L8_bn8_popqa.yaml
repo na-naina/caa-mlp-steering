@@ -1,0 +1,32 @@
+# bn=8 recipe trained/evaluated on PopQA (cross-task generalization)
+# a+ = gold answer; a- = mined wrong answer (same relation type, alias-excluded)
+
+model:
+  name: meta-llama/Llama-2-7b-chat-hf
+  layer: 8
+  family: llama2
+
+task:
+  name: popqa
+  subsample: 4000
+  cache_dir: cache/datasets
+  split:
+    steering_pool: 100
+    train: 309
+    test: 1000
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    lr: 5.0e-4
+  gen_training:
+    lr: 5.0e-4
+
+steering:
+  vector_bank:
+    num_vectors: 0
+  enabled_variants: [mlp_mc]
+
+evaluation:
+  preset: null  # No TruthfulQA few-shot primer for non-TQA tasks

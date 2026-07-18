@@ -22,7 +22,6 @@ import argparse
 import json
 import logging
 import re
-import string
 import sys
 from pathlib import Path
 
@@ -33,17 +32,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models.loader import load_causal_model
 from src.steering.apply import steering_hook
+from src.utils.qa_metrics import contains_match, normalize  # noqa: F401 (normalize kept for import compat)
 
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 LOG = logging.getLogger(__name__)
-
-
-def normalize(s: str) -> str:
-    """SQuAD-style answer normalization."""
-    s = s.lower()
-    s = "".join(ch for ch in s if ch not in string.punctuation)
-    s = re.sub(r"\b(a|an|the)\b", " ", s)
-    return " ".join(s.split())
 
 
 def load_qa(dataset: str, n: int, seed: int):
@@ -63,11 +55,6 @@ def load_qa(dataset: str, n: int, seed: int):
         ds = ds.shuffle(seed=seed).select(range(min(n, len(ds))))
         return [{"question": r["question"], "golds": list(r["answer"]), "meta": {}} for r in ds]
     raise ValueError(dataset)
-
-
-def contains_match(pred: str, golds: list[str]) -> bool:
-    p = normalize(pred)
-    return any(normalize(g) in p for g in golds if g and normalize(g))
 
 
 @torch.no_grad()
