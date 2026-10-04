@@ -1,0 +1,6 @@
+fig31_samples	.venv/bin/python scripts/sample_prompts.py --runs data/outputs/fig31_k64_noreg data/outputs/fig31_k64_reg data/outputs/fig31_fat data/outputs/fig31_k8 --out data/outputs/fig31_samples.json --samples 3
+oneshot_q0	.venv/bin/python scripts/train_direct_vector.py --generate-only --seed 42 --output-dir data/outputs/roneshot_q0/fold1
+oneshot_q1	.venv/bin/python scripts/train_direct_vector.py --generate-only --seed 42 --output-dir data/outputs/roneshot_q1/fold1
+oneshot_q2	.venv/bin/python scripts/train_direct_vector.py --generate-only --seed 42 --output-dir data/outputs/roneshot_q2/fold1
+oneshot_q3	.venv/bin/python scripts/train_direct_vector.py --generate-only --seed 42 --output-dir data/outputs/roneshot_q3/fold1
+oneshot_q4	.venv/bin/python scripts/train_direct_vector.py --generate-only --seed 42 --output-dir data/outputs/roneshot_q4/fold1
