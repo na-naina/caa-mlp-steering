@@ -30,17 +30,31 @@ logging.basicConfig(
 LOG = logging.getLogger(__name__)
 
 
-def prepare_dpo_dataset(seed=42):
-    """Convert TruthfulQA into DPO preference pairs using our train split."""
+def load_splits(dataset, splits_file=None):
+    """Seed-derived pool/train/test split, or an explicit JSON split (2-fold CV)."""
+    from src.data.truthfulqa import TruthfulQAPipelineSplits
+
+    if splits_file:
+        sd = json.loads(Path(splits_file).read_text())
+        return TruthfulQAPipelineSplits(steering_pool=sd["steering_pool"], train=sd["train"],
+                                        test=sd["test"], val=sd.get("val", []))
+    return dataset.create_pipeline_splits(steering_pool_size=100, train_size=309, test_size=0)
+
+
+def prepare_dpo_dataset(seed=42, splits_file=None, include_pool=False):
+    """Convert TruthfulQA into DPO preference pairs using our train split.
+
+    include_pool=True also uses the 100-question CAA steering pool, so the
+    adapter sees every training-side question (MAST uses the pool for v_CAA).
+    """
     from src.data.truthfulqa import TruthfulQADatasetManager
 
     dataset = TruthfulQADatasetManager(seed=seed)
-    splits = dataset.create_pipeline_splits(
-        steering_pool_size=100, train_size=309, test_size=0
-    )
+    splits = load_splits(dataset, splits_file)
+    train_indices = list(splits.train) + (list(splits.steering_pool) if include_pool else [])
 
     pairs = []
-    for idx in splits.train:
+    for idx in train_indices:
         item = dataset.get_item(int(idx))
         question = item["question"]
         best_answer = item.get("best_answer") or item["correct_answers"][0]
@@ -60,7 +74,9 @@ def prepare_dpo_dataset(seed=42):
     return pairs
 
 
-def train_lora_dpo(model_name, output_dir, pairs, num_epochs=2, lr=5e-5, lora_r=8):
+def train_lora_dpo(model_name, output_dir, pairs, num_epochs=2, lr=5e-5, lora_r=8,
+                   target_modules=("q_proj", "v_proj"), lora_alpha=16, batch_size=8,
+                   beta=0.1, seed=42):
     """Train LoRA adapters with DPO on TruthfulQA preference pairs."""
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from peft import LoraConfig, get_peft_model
@@ -81,9 +97,9 @@ def train_lora_dpo(model_name, output_dir, pairs, num_epochs=2, lr=5e-5, lora_r=
     # LoRA config — apply to Q, V projections like standard LoRA
     lora_config = LoraConfig(
         r=lora_r,
-        lora_alpha=16,
+        lora_alpha=lora_alpha,
         lora_dropout=0.05,
-        target_modules=["q_proj", "v_proj"],
+        target_modules=list(target_modules),
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -93,9 +109,11 @@ def train_lora_dpo(model_name, output_dir, pairs, num_epochs=2, lr=5e-5, lora_r=
     training_args = DPOConfig(
         output_dir=str(lora_output),
         num_train_epochs=num_epochs,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
+        per_device_train_batch_size=min(batch_size, 2),
+        gradient_accumulation_steps=max(1, batch_size // 2),
         learning_rate=lr,
+        beta=beta,
+        seed=seed,
         bf16=True,
         logging_steps=10,
         save_strategy="no",
@@ -127,6 +145,39 @@ def train_lora_dpo(model_name, output_dir, pairs, num_epochs=2, lr=5e-5, lora_r=
     torch.cuda.empty_cache()
 
     return str(lora_output)
+
+
+def run_lora_only_generation(model_name, lora_path, output_dir, seed=42, splits_file=None):
+    """Generate test answers from the merged LoRA-DPO model with no steering."""
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    from src.data.truthfulqa import TruthfulQADatasetManager
+    from src.evaluation.truthfulqa import evaluate_generation
+
+    base_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16,
+                                                      device_map="auto")
+    model = PeftModel.from_pretrained(base_model, lora_path).merge_and_unload()
+    model.eval()
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    device = next(model.parameters()).device
+
+    dataset = TruthfulQADatasetManager(seed=seed)
+    splits = load_splits(dataset, splits_file)
+    gen_cfg = {"preset": "qa", "temperature": 0.3, "top_p": 0.9, "max_new_tokens": 64,
+               "max_length": 512, "stop_sequences": ["\n\n", "\nQuestion:"]}
+    gen_result = evaluate_generation(model, tokenizer, dataset.get_items(splits.test),
+                                     layer_index=8, steering_vector=None, scale=0.0,
+                                     generation_cfg=gen_cfg, primary_device=device,
+                                     judge=None, semantic_judge=None)
+    # judge-script-compatible layout (the run directory name identifies the method)
+    gen_dir = Path(output_dir) / "mlp_mc" / "scale_1.00"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+    with (gen_dir / "generation_details.json").open("w") as f:
+        json.dump(gen_result["details"], f, indent=2)
+    LOG.info("LoRA-only: %d responses -> %s", len(gen_result["details"]), gen_dir)
 
 
 def run_steering_pipeline(model_name, lora_path, output_dir, seed=42, bottleneck_dim=8):
@@ -255,7 +306,22 @@ def main():
     parser.add_argument("--skip-lora", action="store_true",
                         help="Skip LoRA training, reuse existing adapter")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--splits-file", type=Path, default=None,
+                        help="Explicit split JSON (2-fold CV); overrides the --seed split")
+    parser.add_argument("--target-modules", default="q_proj,v_proj",
+                        help="Comma-separated LoRA targets; RaLFiT uses o_proj,down_proj")
+    parser.add_argument("--lora-alpha", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--beta", type=float, default=0.1, help="DPO beta")
+    parser.add_argument("--include-pool", action="store_true",
+                        help="Also train on the 100 steering-pool questions")
+    parser.add_argument("--train-only", action="store_true",
+                        help="Train the adapter and stop (generate later with --skip-lora --lora-only)")
+    parser.add_argument("--lora-only", action="store_true",
+                        help="Generate from the LoRA model without steering and stop")
     args = parser.parse_args()
+    import random
+    random.seed(args.seed); np.random.seed(args.seed); torch.manual_seed(args.seed)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -263,15 +329,28 @@ def main():
 
     if not args.skip_lora:
         # Step 1: Prepare DPO data
-        pairs = prepare_dpo_dataset(seed=args.seed)
+        pairs = prepare_dpo_dataset(seed=args.seed, splits_file=args.splits_file,
+                                    include_pool=args.include_pool)
 
         # Step 2: Train LoRA DPO
         lora_path = train_lora_dpo(
             args.model, args.output_dir, pairs,
             num_epochs=args.epochs, lr=args.lr, lora_r=args.lora_r,
+            target_modules=args.target_modules.split(","), lora_alpha=args.lora_alpha,
+            batch_size=args.batch_size, beta=args.beta, seed=args.seed,
         )
+        (args.output_dir / "meta.json").write_text(json.dumps(
+            {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}, indent=2))
     else:
         LOG.info("Skipping LoRA training, using existing adapter at %s", lora_path)
+
+    if args.train_only:
+        return
+
+    if args.lora_only:
+        run_lora_only_generation(args.model, str(lora_path), str(args.output_dir),
+                                 seed=args.seed, splits_file=args.splits_file)
+        return
 
     # Step 3: Run steering pipeline on LoRA model
     run_steering_pipeline(args.model, str(lora_path), str(args.output_dir),

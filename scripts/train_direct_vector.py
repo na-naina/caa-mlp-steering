@@ -88,7 +88,14 @@ def main():
     p.add_argument("--seed", type=int, default=42, help="Split + batch-order seed")
     p.add_argument("--torch-seed", type=int, default=None,
                    help="Torch/python RNG seed (init noise, decoding); defaults to --seed")
+    p.add_argument("--splits-file", type=Path, default=None,
+                   help="JSON with steering_pool/train/test indices (e.g. 2-fold CV splits); "
+                        "overrides the --seed-derived split")
     p.add_argument("--skip-generation", action="store_true")
+    p.add_argument("--generate-only", action="store_true",
+                   help="Skip training; generate from <output-dir>/vectors/optimized_vector.pt "
+                        "and <output-dir>/metadata/splits.json (lets training and generation "
+                        "run on different GPU layouts)")
     args = p.parse_args()
 
     torch_seed = args.torch_seed if args.torch_seed is not None else args.seed
@@ -106,7 +113,24 @@ def main():
     param_dtype = next(model.parameters()).dtype
 
     dataset = TruthfulQADatasetManager(seed=args.seed)
-    splits = dataset.create_pipeline_splits(steering_pool_size=100, train_size=309, test_size=0)
+    if args.generate_only:  # reuse the split saved at training time
+        sd = json.loads((args.output_dir / "metadata" / "splits.json").read_text())
+        from src.data.truthfulqa import TruthfulQAPipelineSplits
+        splits = TruthfulQAPipelineSplits(steering_pool=sd["steering_pool"], train=sd["train"],
+                                          test=sd["test"], val=sd.get("val", []))
+        optimized = torch.load(args.output_dir / "vectors" / "optimized_vector.pt").to(device, dtype=param_dtype)
+        _generate(args, model, tokenizer, device, dataset, splits, optimized)
+        return
+
+    if args.splits_file:
+        from src.data.truthfulqa import TruthfulQAPipelineSplits
+        sd = json.loads(args.splits_file.read_text())
+        splits = TruthfulQAPipelineSplits(steering_pool=sd["steering_pool"], train=sd["train"],
+                                          test=sd["test"], val=sd.get("val", []))
+        LOG.info("Loaded splits from %s (pool=%d, train=%d, test=%d)", args.splits_file,
+                 len(splits.steering_pool), len(splits.train), len(splits.test))
+    else:
+        splits = dataset.create_pipeline_splits(steering_pool_size=100, train_size=309, test_size=0)
     (args.output_dir / "metadata").mkdir(exist_ok=True)
     (args.output_dir / "metadata" / "splits.json").write_text(json.dumps({
         "steering_pool": splits.steering_pool, "train": splits.train,
@@ -215,6 +239,7 @@ def main():
         "margin": args.margin, "anchor_lambda": args.anchor_lambda,
         "grad_clip": args.grad_clip, "seed": args.seed, "torch_seed": torch_seed,
         "layer": args.layer, "model": args.model,
+        "splits_file": str(args.splits_file) if args.splits_file else None,
         "v_caa_norm": vc.norm().item(), "v_init_norm": v_init.float().cpu().norm().item(),
         "v_final_norm": vf.norm().item(),
         "cos_final_vs_caa": F.cosine_similarity(vf, vc, dim=0).item(),
@@ -231,6 +256,10 @@ def main():
     if args.skip_generation:
         return
 
+    _generate(args, model, tokenizer, device, dataset, splits, optimized)
+
+
+def _generate(args, model, tokenizer, device, dataset, splits, optimized):
     # Generation identical to run.py._generate_all_responses gen_cfg
     gen_cfg = {"preset": "qa", "temperature": 0.3, "top_p": 0.9, "max_new_tokens": 64,
                "max_length": args.max_length, "stop_sequences": ["\n\n", "\nQuestion:"]}

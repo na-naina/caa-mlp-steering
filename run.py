@@ -53,8 +53,26 @@ def parse_args():
                    help="Seed for torch/np/random RNGs (MLP init, dropout, decoding). "
                         "Defaults to --seed. Set separately to vary training randomness "
                         "while keeping the --seed-determined data splits fixed.")
+    p.add_argument("--set", dest="overrides", action="append", default=[],
+                   metavar="KEY=VALUE",
+                   help="Override a config value by dotted path, e.g. --set mlp.mc_training.lr=1e-3 "
+                        "(value parsed as YAML). Repeatable.")
     p.add_argument("--verbose", action="store_true")
     return p.parse_args()
+
+
+def apply_overrides(config: Dict, overrides) -> None:
+    """Apply dotted-path KEY=VALUE overrides (values parsed as YAML)."""
+    import yaml
+
+    for item in overrides:
+        key, _, raw = item.partition("=")
+        node = config
+        parts = key.split(".")
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = yaml.safe_load(raw)
+        LOG.info("Config override: %s = %r", key, node[parts[-1]])
 
 
 def setup_environment(config: Dict):
@@ -331,10 +349,27 @@ def _generate_all_responses(config, run_dir, model, tokenizer, device, dataset, 
         variants = {k: v for k, v in variants.items() if k in enabled}
         LOG.info("Enabled variants: %s", list(variants.keys()))
     
-    results = {}
+    # Raw CAA can be generated at several inference scales (steering.caa_scales);
+    # every learned variant is applied at scale 1.0.
+    caa_scales = steering_cfg.get("caa_scales", [1.0])
+    jobs = []
     for name, vector in variants.items():
-        LOG.info("Generating for variant: %s", name)
-        scale = 0.0 if vector is None else 1.0
+        if vector is None:
+            jobs.append((name, vector, 0.0))
+        elif name == "steered":
+            jobs.extend((name, vector, float(s)) for s in caa_scales)
+        else:
+            jobs.append((name, vector, 1.0))
+
+    # Persist the exact applied vectors (used by scripts/eval_mc_harness.py)
+    (run_dir / "vectors").mkdir(exist_ok=True)
+    for name, vector in variants.items():
+        if vector is not None:
+            torch.save(vector.detach().float().cpu(), run_dir / "vectors" / f"v_{name}.pt")
+
+    results = {}
+    for name, vector, scale in jobs:
+        LOG.info("Generating for variant: %s (scale %.2f)", name, scale)
         
         mc_result = evaluate_multiple_choice(
             model, tokenizer, mc_items,
@@ -356,7 +391,8 @@ def _generate_all_responses(config, run_dir, model, tokenizer, device, dataset, 
         with (variant_dir / "generation_details.json").open("w") as f:
             json.dump(gen_result["details"], f, indent=2)
         
-        results[name] = {f"scale_{scale:.2f}": {"mc": mc_result["stats"], "generation": gen_result["stats"]}}
+        results.setdefault(name, {})[f"scale_{scale:.2f}"] = {
+            "mc": mc_result["stats"], "generation": gen_result["stats"]}
     
     with (run_dir / "results_raw.json").open("w") as f:
         json.dump(results, f, indent=2, default=str)
@@ -410,6 +446,7 @@ def main():
         return 1
     
     config = load_config(base_config, overrides=[model_config])
+    apply_overrides(config, args.overrides)
     config.setdefault("run", {})["seed"] = args.seed
 
     # --task overrides the config's task.name (default stays truthfulqa)
