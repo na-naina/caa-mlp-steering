@@ -81,9 +81,10 @@ def cell(seed: int, fold: int):
               "--include-pool --target-modules o_proj,down_proj --lora-r 8 --lr 1e-4 "
               "--epochs 5 --batch-size 8", **kw)
     # Learning-rate curves: MAST vs direct vector at every lr
-    for lr in ("1e-3", "2e-3"):
+    # (YAML 1.1 reads "1e-3" as a string, so pass the lr in decimal form)
+    for lr, dec in (("1e-3", "0.001"), ("2e-3", "0.002")):
         yield Exp(f"mast_lr{lr}_{tag}", 1, "run", out(f"mast_lr{lr}"),
-                  f"--model {LLAMA} {MAST_ONLY} --set mlp.mc_training.lr={lr}", **kw)
+                  f"--model {LLAMA} {MAST_ONLY} --set mlp.mc_training.lr={dec}", **kw)
     for lr in ("5e-4", "1e-3", "5e-3"):
         yield Exp(f"dvzero_lr{lr}_{tag}", 1, "dv", out(f"dvzero_lr{lr}"), f"--init zero --lr {lr}", **kw)
     yield Exp(f"dvcaa_lr2e-3_{tag}", 1, "dv", out("dvcaa_lr2e-3"), "--init caa --lr 2e-3", **kw)

@@ -111,10 +111,6 @@ def main_table(num: Numbers, judge: str):
     if "dvzero_lr5e-4" in table and "dvcaa_lr5e-4" in table:
         g = abs(table["dvzero_lr5e-4"]["ti_product"]["mean"] - table["dvcaa_lr5e-4"]["ti_product"]["mean"])
         num.set("dvinit", "gap", f"{g:.1f}")
-    # fold-1-only MAST for the noise ablation comparison
-    f1 = rate_list([runs["mast"][s][1] for s in runs.get("mast", {}) if 1 in runs["mast"][s]])
-    if f1:
-        num.set("mastfA", "tiprod", pm(*f1["ti_product"]))
     # MC1/MC2
     mc = agg.mc_results()
     for name, key in (("baseline", "base"), ("mast", "mast"), ("raw_caa", "caa1"), ("dvzero_lr2e-3:dvzero", "dvzero")):
@@ -303,6 +299,56 @@ def categories(runs, paper_dir: Path):
     (paper_dir / "categories_table.tex").write_text("\n".join(lines) + "\n")
 
 
+def legacy_and_oneshot(num: Numbers):
+    """Original 10-seed headline under both aggregations; one-shot vectors (thesis)."""
+    jf = "gpt_judge_results.json"
+    ten = rate_list([load_judged(OUT / f"multiseed/seed_{s}/mlp_mc/scale_1.00/{jf}")
+                     for s in (42, 123, 456, 789, 1337, 7, 11, 73, 2024, 2026)])
+    if ten:
+        num.set("tenseed", "tiprod", pm(*ten["ti_product"]))
+        num.set("tenseed", "ticonj", pm(*ten["ti_conj"]))
+    shots = [load_judged(OUT / f"roneshot_q{k}/fold1/mlp_mc/scale_1.00/{jf}") for k in range(5)]
+    shots = [agg.rates(x) for x in shots if x]
+    if shots:
+        v = np.array([r["ti_product"] for r in shots])
+        num.set("oneshot", "tiprod", pm(v.mean(), v.std(ddof=1) if len(v) > 1 else 0.0))
+        num.set("oneshot", "range", f"{v.min():.1f}--{v.max():.1f}")
+        num.set("oneshot", "n", str(len(v)))
+    m = load_judged(OUT / f"rcv_main_s42/fold1/mlp_mc/scale_1.00/{jf}")
+    if m:
+        num.set("mastfAone", "tiprod", f"{agg.rates(m)['ti_product']:.1f}")
+
+
+def crossfold_selection(num: Numbers, runs):
+    """Select each method's learning rate on the judged T×I of one fold, evaluate on the other.
+
+    This is a legitimate validation protocol (the selection fold is disjoint from the
+    evaluation fold), unlike picking the lr on the evaluation answers themselves.
+    """
+    families = {
+        "selDvzero": ["dvzero_lr5e-4", "dvzero_lr1e-3", "dvzero_lr2e-3", "dvzero_lr5e-3"],
+        "selMast": ["mast", "mast_lr1e-3", "mast_lr2e-3"],
+    }
+    out = {}
+    for key, members in families.items():
+        vals, picks = [], []
+        for seed in (42, 123, 456):
+            cells = {m: runs.get(m, {}).get(seed, {}) for m in members}
+            if not all(1 in c and 2 in c for c in cells.values()):
+                continue
+            for sel, ev in ((1, 2), (2, 1)):
+                best = max(members, key=lambda m: agg.rates(cells[m][sel])["ti_product"])
+                picks.append(best)
+                vals.append(agg.rates(cells[best][ev])["ti_product"])
+        if vals:
+            v = np.array(vals)
+            num.set(key, "tiprod", pm(v.mean(), v.std(ddof=1) if len(v) > 1 else 0.0))
+            num.set(key, "n", str(len(v)))
+            num.set(key, "picks", ", ".join(f"{m.split('lr')[-1] if 'lr' in m else '5e-4'}" for m in picks))
+            out[key] = (v, picks)
+    return out
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--paper-dir", type=Path, default=Path("paper/drafts/revision_oct2026/paper"))
@@ -313,7 +359,9 @@ def main():
     noise_ablation(num, "open_judge_results.json")
     cathold(num, args.paper_dir, "open_judge_results.json")
     gemma(num, args.paper_dir)
+    legacy_and_oneshot(num)
     if table:
+        crossfold_selection(num, runs)
         lr_outputs(table, runs, args.paper_dir)
         categories(runs, args.paper_dir)
     num.write(args.paper_dir / "numbers.tex")
