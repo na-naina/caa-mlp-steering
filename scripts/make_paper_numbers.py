@@ -97,6 +97,20 @@ def main_table(num: Numbers, judge: str):
         else:
             num.set(key, "otiprod", pm(r["ti_product"]["mean"], r["ti_product"]["sd"]))
             num.set(key, "oticonj", pm(r["ti_conj"]["mean"], r["ti_conj"]["sd"]))
+    # the better raw-CAA scale (alpha 1 or 2), chosen on the mean over all cells
+    cands = [m for m in ("caa_a1", "caa_a2") if m in table and "ti_product" in table[m]]
+    if cands:
+        best = max(cands, key=lambda m: table[m]["ti_product"]["mean"])
+        KEYS["caabest"] = best
+        r = table[best]
+        if judge == "gpt":
+            num.set("caabest", "alpha", "1" if best == "caa_a1" else "2")
+        for metric, k in (("truth", "truth"), ("info", "info"), ("tiprod", "ti_product"), ("ticonj", "ti_conj")):
+            num.set("caabest", ("o" if judge != "gpt" and metric.startswith("ti") else "") + metric,
+                    pm(r[k]["mean"], r[k]["sd"]))
+        if judge == "gpt" and "baseline" in table:
+            num.set("caabest", "gainbase", f"{r['ti_product']['mean'] - table['baseline']['ti_product']['mean']:+.1f}")
+            COMPARE["mastVcaabest"] = ("mast", best)
     if judge != "gpt":
         return runs, table
     for key, (a, b) in COMPARE.items():
@@ -108,6 +122,10 @@ def main_table(num: Numbers, judge: str):
                 num.set(key, "diff", f"{bs['diff_product']:+.1f}")
                 num.set(key, "ci", f"{bs['ci95_product'][0]:+.1f}, {bs['ci95_product'][1]:+.1f}")
                 num.set(key, "diffconj", f"{bs['diff_conj']:+.1f}")
+                num.set(key, "diffabs", f"{abs(bs['diff_product']):.1f}")
+    if all(m in table and "ti_product" in table[m] for m in ("baseline", "mast", "loradpo")):
+        b, m_, l = (table[k]["ti_product"]["mean"] for k in ("baseline", "mast", "loradpo"))
+        num.set("gap", "recovered", f"{100 * (m_ - b) / (l - b):.0f}")
     if "dvzero_lr5e-4" in table and "dvcaa_lr5e-4" in table:
         g = abs(table["dvzero_lr5e-4"]["ti_product"]["mean"] - table["dvcaa_lr5e-4"]["ti_product"]["mean"])
         num.set("dvinit", "gap", f"{g:.1f}")
@@ -116,7 +134,8 @@ def main_table(num: Numbers, judge: str):
     for name, key in (("baseline", "base"), ("mast", "mast"), ("raw_caa", "caa1"), ("dvzero_lr2e-3:dvzero", "dvzero")):
         for task, metric in (("truthfulqa_mc1", "mcone"), ("truthfulqa_mc2", "mctwo")):
             if name in mc and task in mc[name]:
-                num.set(key, metric, pm(mc[name][task]["mean"], mc[name][task]["sd"]))
+                r = mc[name][task]
+                num.set(key, metric, pm(r["mean"], r["sd"]) if r["n_seeds"] > 1 else f"{r['mean']:.1f}")
     return runs, table
 
 
