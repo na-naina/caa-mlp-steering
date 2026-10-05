@@ -1,0 +1,19 @@
+# Qwen3-4B, paper recipe (bn=8, no bank, lr 5e-4, batch 8); layer chosen by training signal (--set model.layer=N)
+model:
+  name: Qwen/Qwen3-4B
+  layer: 9
+  family: qwen3
+  dtype: bfloat16
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    lr: 5.0e-4
+  gen_training:
+    lr: 5.0e-4
+
+steering:
+  vector_bank:
+    num_vectors: 0
+  enabled_variants: [baseline, steered, mlp_mc]
