@@ -91,6 +91,9 @@ def main():
     p.add_argument("--splits-file", type=Path, default=None,
                    help="JSON with steering_pool/train/test indices (e.g. 2-fold CV splits); "
                         "overrides the --seed-derived split")
+    p.add_argument("--scale-by-caa", action="store_true",
+                   help="Parameterise v = ||v_CAA|| * u and optimise u, so the effective step size scales "
+                        "with the model's activation scale at the steering layer")
     p.add_argument("--skip-generation", action="store_true")
     p.add_argument("--generate-only", action="store_true",
                    help="Skip training; generate from <output-dir>/vectors/optimized_vector.pt "
@@ -156,10 +159,12 @@ def main():
         v_init = r * (v_caa.norm() / r.norm())
 
     v_init = v_init.to(device, dtype=param_dtype)
-    v = v_init.clone().requires_grad_(True)
+    scale = float(v_caa.norm()) if args.scale_by_caa else 1.0
+    u = (v_init / scale).clone().requires_grad_(True)
+    v = u * scale
     LOG.info("Init '%s': ||v0||=%.4f (||v_CAA||=%.4f)", args.init, v_init.norm().item(), v_caa.norm().item())
 
-    optimizer = torch.optim.AdamW([v], lr=args.lr, weight_decay=0.0)
+    optimizer = torch.optim.AdamW([u], lr=args.lr, weight_decay=0.0)
     rng = np.random.default_rng(args.seed)
     valid_indices = [idx for idx in splits.train if dataset.is_valid_mc(idx)]
 
@@ -167,6 +172,7 @@ def main():
     for epoch in range(args.epochs):
         for step in range(args.steps_per_epoch):
             optimizer.zero_grad()
+            v = u * scale
             batch_idx = rng.choice(valid_indices, size=min(args.batch_size, len(valid_indices)), replace=False)
             prompts, ans_c, ans_i = [], [], []
             for idx in batch_idx:
@@ -218,7 +224,7 @@ def main():
 
             loss.backward()
             if args.grad_clip:
-                torch.nn.utils.clip_grad_norm_([v], args.grad_clip)
+                torch.nn.utils.clip_grad_norm_([u], args.grad_clip)
             optimizer.step()
 
             with torch.no_grad():
@@ -230,7 +236,7 @@ def main():
                  epoch + 1, args.epochs, history["loss"][-1], history["accuracy"][-1],
                  v.norm().item(), (v - v_init).norm().item())
 
-    optimized = v.detach()
+    optimized = (u * scale).detach()
     vf = optimized.float().cpu()
     vc = v_caa.float()
     meta = {
@@ -240,6 +246,7 @@ def main():
         "grad_clip": args.grad_clip, "seed": args.seed, "torch_seed": torch_seed,
         "layer": args.layer, "model": args.model,
         "splits_file": str(args.splits_file) if args.splits_file else None,
+        "scale_by_caa": args.scale_by_caa, "param_scale": scale,
         "v_caa_norm": vc.norm().item(), "v_init_norm": v_init.float().cpu().norm().item(),
         "v_final_norm": vf.norm().item(),
         "cos_final_vs_caa": F.cosine_similarity(vf, vc, dim=0).item(),
