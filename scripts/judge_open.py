@@ -62,7 +62,9 @@ def main():
     p.add_argument("--overwrite", action="store_true")
     args = p.parse_args()
 
-    files = sorted({f for r in args.roots for f in ([r] if r.is_file() else r.rglob("generation_details.json"))})
+    files = sorted({f for r in args.roots
+                    for f in ([r] if r.is_file() and r.name == "generation_details.json"
+                              else (r.rglob("generation_details.json") if r.is_dir() else []))})
     judges = ["truth", "info"] if args.judge == "both" else [args.judge]
     for jname in judges:
         model_id, suffix = JUDGES[jname]
