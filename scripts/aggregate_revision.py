@@ -52,7 +52,30 @@ LABELS = {
     "dvcaa_lr5e-4": "Direct vector, CAA init (lr 5e-4)",
     "dvcaa_lr2e-3": "Direct vector, CAA init (lr 2e-3)",
     "loradpo": "LoRA-DPO (W_O+W_down, r=8)",
+    "mast_lr1e-4": "MAST (lr 1e-4)",
+    "mast_lr2e-4": "MAST (lr 2e-4)",
+    "mast_lr3e-4": "MAST (lr 3e-4)",
+    "bipo_lr5e-4": "Direct vector, BiPO loss (lr 5e-4)",
+    "bipo_lr2e-3": "Direct vector, BiPO loss (lr 2e-3)",
+    "dvscaled_lr8e-4": "Direct vector, zero init, ||v_CAA||-scaled (lr 8e-4)",
 }
+# Other models: run dirs rcv_<key>main_s* (baseline/CAA/MAST) and rcv_<key>_<method>_s*;
+# their labels are "<key>:<method>" and get their own table.
+MODELS = {"g4b": "Gemma-3-4B-IT", "q4b": "Qwen3-4B", "g4e": "Gemma-4-E4B-IT", "q35": "Qwen3.5-9B"}
+
+
+def split_method(method: str):
+    """rcv dir method -> (model key or '', method)."""
+    for k in MODELS:
+        if method == f"{k}main":
+            return k, "main"
+        if method.startswith(f"{k}_"):
+            return k, method[len(k) + 1:]
+    return "", method
+
+
+def label_of(key: str, method: str) -> str:
+    return f"{key}:{method}" if key else method
 
 
 def load_items(path: Path):
@@ -68,18 +91,19 @@ def discover():
         m = RCV.match(d.name)
         if not m:
             continue
-        method, seed = m["method"], int(m["seed"])
+        key, method = split_method(m["method"])
+        seed = int(m["seed"])
         for fold_dir in sorted(d.glob("fold*")):
             fold = int(fold_dir.name[4:])
             if method == "main":
                 for (var, sc), label in MAIN_VARIANTS.items():
                     f = fold_dir / var / sc / JUDGE_FILE
                     if f.exists():
-                        runs[label][seed][fold] = load_items(f)
+                        runs[label_of(key, label)][seed][fold] = load_items(f)
             else:
                 f = fold_dir / "mlp_mc" / "scale_1.00" / JUDGE_FILE
                 if f.exists():
-                    runs[method][seed][fold] = load_items(f)
+                    runs[label_of(key, method)][seed][fold] = load_items(f)
     return runs
 
 
@@ -215,14 +239,30 @@ def main():
 
     runs = discover()
     table = summarise(runs)
-    order = [m for m in LABELS if m in table] + sorted(m for m in table if m not in LABELS)
+    def rows(methods):
+        out = ["| Method | seeds (full) | Truth | Info | T×I (product) | T∧I (per-item) | cells |",
+               "|---|---|---|---|---|---|---|"]
+        for m in methods:
+            r = table[m]
+            base = m.split(":", 1)[-1]
+            name = LABELS.get(base, base).replace("LLaMA-2-7B-Chat (no intervention)", "No intervention")
+            if r["n_seeds_full"]:
+                out.append(f"| {name} | {r['n_seeds_full']} | {fmt(r, 'truth')} | {fmt(r, 'info')} "
+                           f"| {fmt(r, 'ti_product')} | {fmt(r, 'ti_conj')} | {len(r['cells'])} |")
+            else:  # incomplete: show per-cell values
+                cells = "; ".join(f"{c} {v['ti_product']:.1f}" for c, v in sorted(r["cells"].items()))
+                out.append(f"| {name} | 0 | – | – | per-cell T×I: {cells} | – | {len(r['cells'])} |")
+        return out
 
-    lines = ["| Method | seeds | Truth | Info | T×I (product) | T∧I (per-item) |", "|---|---|---|---|---|---|"]
-    for m in order:
-        r = table[m]
-        lines.append(f"| {LABELS.get(m, m)} | {r['n_seeds_full']} | {fmt(r, 'truth')} | {fmt(r, 'info')} "
-                     f"| {fmt(r, 'ti_product')} | {fmt(r, 'ti_conj')} |")
-    md = [f"# Revision results ({args.judge} judges; 2-fold CV over 817 questions; mean ± s.d. over seeds)", "", *lines, ""]
+    llama = [m for m in LABELS if m in table] + sorted(m for m in table if m not in LABELS and ":" not in m)
+    md = [f"# Revision results ({args.judge} judges; 2-fold CV over 817 questions; mean ± s.d. over seeds)", "",
+          "## LLaMA-2-7B-Chat", "", *rows(llama), ""]
+    for key, mname in MODELS.items():
+        ms = [m for m in table if m.startswith(key + ":")]
+        if ms:
+            prio = ["baseline", "caa_a1", "caa_a2", "mast"]
+            ms.sort(key=lambda m: (prio.index(m.split(":")[1]) if m.split(":")[1] in prio else 9, m))
+            md += [f"## {mname}", "", *rows(ms), ""]
 
     comparisons = {}
     for a, b in [("mast", "dvzero_lr2e-3"), ("mast", "dvcaa_lr5e-4"), ("mast", "dvzero_lr5e-4"),
