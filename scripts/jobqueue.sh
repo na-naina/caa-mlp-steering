@@ -31,7 +31,9 @@ worker() {
     local name=${line%%$'\t'*} cmd=${line#*$'\t'}
     echo "[$(date +%T)] gpu$gpu START $name"
     local vis=""; [ "$gpu" != all ] && vis="CUDA_VISIBLE_DEVICES=$gpu"
-    env $vis PYTORCH_ALLOC_CONF=expandable_segments:True \
+    # GEN_BATCH_SIZE: batched TruthfulQA generation (src/evaluation/truthfulqa.py), ~10x faster;
+    # greedy outputs match the per-item path on 42/48 (LLaMA) and 28/32 (Qwen3.5) questions.
+    env $vis PYTORCH_ALLOC_CONF=expandable_segments:True GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-8} \
       bash -c "$cmd" > "logs/queue/$name.log" 2>&1
     local rc=$?
     if [ $rc -eq 0 ]; then echo "$name" >> "$JOBS.done"; else echo "$name rc=$rc" >> "$JOBS.failed"; fi

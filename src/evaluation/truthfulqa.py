@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import random
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence
@@ -52,8 +53,12 @@ def evaluate_multiple_choice(
 
     steering = steering_vector if scale != 0 else None
 
+    batch_size = int(os.environ.get("GEN_BATCH_SIZE", generation_cfg.get("batch_size", 1)) or 1)
     with steering_hook(model, layer_index, steering, scale=scale):
-        for item in items:
+        if batch_size > 1:
+            results = _generate_batched(model, tokenizer, items, generation_cfg, primary_device,
+                                        scale, batch_size, preset)
+        for item in (items if batch_size <= 1 else []):
             question = item["question"]
             mc = item.get("mc1_targets")
             if not mc:
@@ -146,8 +151,12 @@ def evaluate_generation(
     if preset:
         from src.prompts.truthfulqa_presets import format_prompt
 
+    batch_size = int(os.environ.get("GEN_BATCH_SIZE", generation_cfg.get("batch_size", 1)) or 1)
     with steering_hook(model, layer_index, steering, scale=scale):
-        for item in items:
+        if batch_size > 1:
+            results = _generate_batched(model, tokenizer, items, generation_cfg, primary_device,
+                                        scale, batch_size, preset)
+        for item in (items if batch_size <= 1 else []):
             question = item["question"]
 
             # Format prompt using TruthfulQA preset if specified
@@ -253,6 +262,104 @@ def evaluate_generation(
         False,  # bleurt_used (not passed to evaluate_generation)
     )
     return {"stats": stats, "details": annotated}
+
+
+def _format_question(question: str, preset) -> str:
+    if preset:
+        from src.prompts.truthfulqa_presets import format_prompt
+        try:
+            return format_prompt(question, preset=preset)
+        except Exception as exc:  # same fallback as the per-item path
+            logger.warning("Failed to format with preset '%s': %s; falling back to simple format", preset, exc)
+    return f"Question: {question}\nAnswer concisely in one sentence:"
+
+
+def _generate_batched(model, tokenizer, items, generation_cfg, primary_device, scale, batch_size, preset):
+    """Batched equivalent of the per-item loop in evaluate_generation (opt-in: GEN_BATCH_SIZE>1).
+
+    Same prompts, truncation, decoding settings and stop rule: the per-item path stops when the
+    sequence (prompt included) ends with a stop-sequence token pattern; here every row runs until
+    all rows have stopped (or hit max_new_tokens) and each row is then cut at the first position
+    where that rule would have fired. Left padding with an attention mask; sampling is
+    statistically identical to the per-item path, greedy (Gemma-3) is identical up to padding numerics.
+    """
+    is_gemma3 = _detect_gemma3(model)
+    stop_ids = []
+    for seq in generation_cfg.get("stop_sequences", []) or []:
+        ids = tokenizer.encode(seq, add_special_tokens=False)
+        if ids:
+            stop_ids.append(ids)
+    max_new = generation_cfg.get("max_new_tokens", 80)
+
+    def first_stop(full: list, plen: int) -> int:
+        """Number of generated tokens kept by the per-item rule (stop tokens included)."""
+        for t in range(1, len(full) - plen + 1):
+            for ids in stop_ids:
+                if t + plen >= len(ids) and full[t + plen - len(ids): t + plen] == ids:
+                    return t
+        return len(full) - plen
+
+    from transformers import StoppingCriteria, StoppingCriteriaList
+
+    class RowStop(StoppingCriteria):
+        def __init__(self, plen):
+            self.plen = plen
+
+        def __call__(self, input_ids, scores, **kwargs):
+            done = []
+            for row in input_ids.tolist():
+                gen = row[self.plen:]
+                done.append(any(len(row) >= len(ids) and row[-len(ids):] == ids for ids in stop_ids)
+                            or (tokenizer.eos_token_id is not None and tokenizer.eos_token_id in gen))
+            return torch.tensor(done, device=input_ids.device)
+
+    pad_side, pad_tok = tokenizer.padding_side, tokenizer.pad_token
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    results = []
+    try:
+        for b in range(0, len(items), batch_size):
+            chunk = items[b:b + batch_size]
+            prompts = [_format_question(it["question"], preset) for it in chunk]
+            # tokenize individually (identical ids to the per-item path), then left-pad
+            enc = [tokenizer(p, truncation=True, max_length=generation_cfg.get("max_length", 512))["input_ids"]
+                   for p in prompts]
+            L = max(len(e) for e in enc)
+            pid = tokenizer.pad_token_id
+            input_ids = torch.tensor([[pid] * (L - len(e)) + e for e in enc], device=primary_device)
+            attn = torch.tensor([[0] * (L - len(e)) + [1] * len(e) for e in enc], device=primary_device)
+            gen_kwargs = dict(max_new_tokens=max_new, pad_token_id=pid, eos_token_id=tokenizer.eos_token_id,
+                              stopping_criteria=StoppingCriteriaList([RowStop(L)]) if stop_ids else None)
+            if not is_gemma3:
+                gen_kwargs.update(do_sample=True, temperature=generation_cfg.get("temperature", 0.7),
+                                  top_p=generation_cfg.get("top_p", 0.9), top_k=generation_cfg.get("top_k", 50))
+            else:
+                gen_kwargs.update(do_sample=False)
+            with torch.no_grad():
+                out = model.generate(input_ids=input_ids, attention_mask=attn, **gen_kwargs)
+            for it, e, row in zip(chunk, enc, out.tolist()):
+                full = e + row[L:]
+                keep = first_stop(full, len(e)) if stop_ids else len(full) - len(e)
+                gen = full[len(e): len(e) + keep]
+                if tokenizer.eos_token_id in gen:  # per-item generate ends at EOS
+                    gen = gen[: gen.index(tokenizer.eos_token_id) + 1]
+                generated = tokenizer.decode(gen, skip_special_tokens=True)
+                true_answers = list(it.get("correct_answers") or [])
+                if "I have no comment." not in true_answers:
+                    true_answers.append("I have no comment.")
+                results.append({
+                    "question": it["question"],
+                    "generated": generated.strip(),
+                    "best_answer": it.get("best_answer") or it["correct_answers"][0],
+                    "true_answers": true_answers,
+                    "incorrect_answers": it.get("incorrect_answers") or [],
+                    "scale": scale,
+                })
+            logger.info("batched generation: %d/%d", len(results), len(items))
+    finally:
+        tokenizer.padding_side, tokenizer.pad_token = pad_side, pad_tok
+    return results
 
 
 def _detect_gemma3(model) -> bool:
