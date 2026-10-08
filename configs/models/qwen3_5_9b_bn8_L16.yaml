@@ -1,0 +1,30 @@
+# Qwen3.5-9B (Feb 2026, hybrid: 3 Gated-DeltaNet linear-attention layers per full-attention layer;
+# full attention at L3,7,11,...). Needs transformers>=5 (requirements-tf5.txt). Loads text-only
+# via AutoModelForCausalLM (Qwen3_5ForCausalLM; vision weights dropped). 248k vocab -> batch 1 x accum 8
+# as for Qwen3-8B (2x32GB sharded). LoRA-DPO analogue of RaLFiT: --target-modules o_proj,out_proj,down_proj
+# Paper recipe (bn=8, no bank, lr 5e-4). Layer-sweep candidate L16/32 (50% depth);
+# pick the layer by final train loss / margin acc only (train-signal protocol).
+model:
+  name: Qwen/Qwen3.5-9B
+  layer: 16
+  family: qwen3_5
+  dtype: bfloat16
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    gradient_checkpointing: true
+    lr: 5.0e-4
+    batch_size: 1
+    gradient_accumulation_steps: 8
+    steps_per_epoch: 400
+  gen_training:
+    lr: 5.0e-4
+    batch_size: 1
+    gradient_accumulation_steps: 8
+
+steering:
+  vector_bank:
+    num_vectors: 0
+  enabled_variants: [baseline, steered, mlp_mc]

@@ -1,0 +1,30 @@
+# Gemma-4-E4B-IT (Apr 2026; 42 layers, d=2560, per-layer embeddings, last 18 layers share KV).
+# Needs transformers>=5.5 (requirements-tf5.txt). Loads as Gemma4ForConditionalGeneration; steering
+# hooks resolve model.model.language_model.layers. Candidate layers all precede the KV-shared block (L24+).
+# NB: generation samples (temp 0.3) like LLaMA/Qwen; only Gemma-3 is decoded greedily (_detect_gemma3).
+# LoRA-DPO: --target-modules 're:.*language_model.*\.(o_proj|down_proj)' (vision tower has same names).
+# Paper recipe (bn=8, no bank, lr 5e-4). Layer-sweep candidate L21/42 (50% depth);
+# pick the layer by final train loss / margin acc only (train-signal protocol).
+model:
+  name: google/gemma-4-E4B-it
+  layer: 21
+  family: gemma4
+  dtype: bfloat16
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    lr: 5.0e-4
+    batch_size: 4
+    gradient_accumulation_steps: 2
+    steps_per_epoch: 100
+  gen_training:
+    lr: 5.0e-4
+    batch_size: 4
+    gradient_accumulation_steps: 2
+
+steering:
+  vector_bank:
+    num_vectors: 0
+  enabled_variants: [baseline, steered, mlp_mc]

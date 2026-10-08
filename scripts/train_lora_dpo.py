@@ -99,7 +99,10 @@ def train_lora_dpo(model_name, output_dir, pairs, num_epochs=2, lr=5e-5, lora_r=
         r=lora_r,
         lora_alpha=lora_alpha,
         lora_dropout=0.05,
-        target_modules=list(target_modules),
+        # "re:<regex>" selects modules by full name (e.g. only the text decoder of a
+        # multimodal checkpoint); otherwise a list of module-name suffixes.
+        target_modules=(target_modules[3:] if isinstance(target_modules, str)
+                        and target_modules.startswith("re:") else list(target_modules)),
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -309,7 +312,9 @@ def main():
     parser.add_argument("--splits-file", type=Path, default=None,
                         help="Explicit split JSON (2-fold CV); overrides the --seed split")
     parser.add_argument("--target-modules", default="q_proj,v_proj",
-                        help="Comma-separated LoRA targets; RaLFiT uses o_proj,down_proj")
+                        help="Comma-separated LoRA targets; RaLFiT uses o_proj,down_proj. "
+                             "Or 're:<regex>' on full module names, e.g. "
+                             "'re:.*language_model.*\\.(o_proj|down_proj)' for Gemma-4")
     parser.add_argument("--lora-alpha", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--beta", type=float, default=0.1, help="DPO beta")
@@ -336,7 +341,8 @@ def main():
         lora_path = train_lora_dpo(
             args.model, args.output_dir, pairs,
             num_epochs=args.epochs, lr=args.lr, lora_r=args.lora_r,
-            target_modules=args.target_modules.split(","), lora_alpha=args.lora_alpha,
+            target_modules=(args.target_modules if args.target_modules.startswith("re:")
+                            else args.target_modules.split(",")), lora_alpha=args.lora_alpha,
             batch_size=args.batch_size, beta=args.beta, seed=args.seed,
         )
         (args.output_dir / "meta.json").write_text(json.dumps(

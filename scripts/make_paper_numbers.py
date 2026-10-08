@@ -149,7 +149,7 @@ def noise_ablation(num: Numbers, judge_file: str):
     if rn:
         num.set("noise", "tiprod", pm(*rn["ti_product"]))
         num.set("noise", "nseeds", str(rn["n"]))
-    if rm and judge_file.startswith("open"):
+    if rm:
         num.set("mastfA", "tiprod", pm(*rm["ti_product"]))
 
 
@@ -280,9 +280,10 @@ def lr_outputs(table, runs, paper_dir: Path):
         name = label.replace(r"\textsc{MAST}", "MAST")
         axes[0].errorbar(xs, ti, yerr=tis, color=c, marker=mk, ms=4, lw=1.5, capsize=2, label=name)
         axes[1].errorbar(xs, info, yerr=infos, color=c, marker=mk, ms=4, lw=1.5, capsize=2)
-    if "caa_a2" in table and "ti_product" in table["caa_a2"]:
-        axes[0].axhline(table["caa_a2"]["ti_product"]["mean"], color="grey", ls=":", lw=1)
-        axes[0].text(5.2e-4, table["caa_a2"]["ti_product"]["mean"] + 0.6, "raw CAA (tuned)", fontsize=6.5, color="grey")
+    caas = [table[m]["ti_product"]["mean"] for m in ("caa_a1", "caa_a2") if m in table and "ti_product" in table[m]]
+    if caas:
+        axes[0].axhline(max(caas), color="grey", ls=":", lw=1)
+        axes[0].text(5.2e-4, max(caas) + 0.6, "raw CAA (better of α=1, 2)", fontsize=6.5, color="grey")
     axes[0].set_ylabel("True×Info (%)", fontsize=8)
     axes[1].set_ylabel("Info (%)", fontsize=8)
     axes[1].set_xscale("log")
@@ -375,8 +376,8 @@ def main():
     num = Numbers()
     runs, table = main_table(num, "gpt")
     main_table(num, "open")
-    noise_ablation(num, "open_judge_results.json")
-    cathold(num, args.paper_dir, "open_judge_results.json")
+    noise_ablation(num, "gpt_judge_results.json")
+    cathold(num, args.paper_dir, "gpt_judge_results.json")
     gemma(num, args.paper_dir)
     legacy_and_oneshot(num)
     if table:

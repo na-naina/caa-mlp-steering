@@ -48,7 +48,7 @@ def new(title, status, ncols=1, **kw):
     fig.text(0.04, 0.95, title, fontsize=21, fontweight="bold", color=INK, va="top")
     if status:
         import textwrap
-        fig.text(0.04, 0.025, textwrap.fill(status, 165), fontsize=11.5, color=INK2, va="bottom")
+        fig.text(0.04, 0.025, textwrap.fill(status, 140), fontsize=11.5, color=INK2, va="bottom")
     return fig, ax
 
 
@@ -83,25 +83,25 @@ def judged(p):
 
 # ---------------------------------------------------------------- 0. status
 fig, ax = new("Revision checklist (22 Sep) — status", "ARR resubmission due 12 Oct, same reviewers. Draft: paper/drafts/revision_oct2026/paper/main.tex")
-table(ax, ["#", "Item", "Status", "Where"], [
-    ["1", "Per-category breakdown (Rev. 74Zo)", "done", "App. C table + slide 2"],
-    ["2", "Model setup aligned with the literature", "done", "§4 + slide 3"],
-    ["3", "Direct-vector baseline across lrs; prior work; always vs sometimes", "done (LLaMA); Gemma running", "§5.2 + slides 4–5"],
-    ["4", "Recent literature", "done, verified", "§2 + slide 6"],
-    ["5", "Table 1 restructured + 'training' column", "done", "slide 7"],
-    ["6", "T×I definition; alignment with original paper and RaLFiT", "done", "§4, App. B + slide 8"],
-    ["7", "Both aggregations in appendix", "done", "App. B + slide 8"],
-    ["8", "Multiple seeds for every method", "done (3 seeds × 2 folds)", "slide 9"],
-    ["9", "Reviewer 3: add the already-run experiments", "done; 2 seed sets pending", "§5.4 + slide 10"],
-    ["10", "Aligned with RaLFiT's protocol", "done", "§4 + slide 11"],
-], widths=[0.4, 6.2, 2.6, 2.6], fs=13, rowh=0.083)
+table(ax, ["#", "Item", "Status"], [
+    ["1", "Per-category breakdown (Rev. 74Zo)", "done"],
+    ["2", "Setup aligned with the literature (fair comparison)", "done"],
+    ["3", "Direct-vector baseline across lrs; prior work; always vs sometimes", "done (LLaMA, Gemma); + loss vs BiPO"],
+    ["4", "Recent literature", "done, verified"],
+    ["5", "Table 1 restructured + 'training' column", "done"],
+    ["6", "T×I definition; alignment with original paper and RaLFiT", "done — main metric to decide"],
+    ["7", "Alternative metric in appendix", "done"],
+    ["8", "Multiple seeds for every method", "done"],
+    ["9", "Reviewer 3: add the already-run experiments", "done; Qwen3-4B running"],
+    ["10", "Aligned with RaLFiT's protocol", "done"],
+], widths=[0.4, 6.4, 3.6], fs=13, rowh=0.083)
 done(fig, "status", top=0.84)
 
 # ---------------------------------------------------------------- 1. categories
 cats = R["categories"]
 cm = {c: v for c, v in cats["mast"].items() if v["n"] >= 30}
 rows = sorted(((c, cats["baseline"][c]["ti_conj"], cm[c]["ti_conj"], cm[c]["n"] // 3) for c in cm), key=lambda t: t[2] - t[1])
-fig, ax = new("1 · Per-category results (Reviewer 74Zo)",
+fig, ax = new("Per-category results, Reviewer 74Zo (item 1)",
               "Status: done — full 38-category table in Appendix C. Shown: categories with ≥10 questions; Truth∧Info, all 817 questions × 3 seeds.")
 for y, (c, b0, b1, n) in enumerate(rows):
     ax.plot([b0, b1], [y, y], color="#d9d8d3", lw=3)
@@ -113,22 +113,34 @@ ax.set_xlim(0, 100)
 ax.legend(frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2)
 done(fig, "categories", left=0.28, top=0.86)
 
-# ---------------------------------------------------------------- 2. model alignment
-fig, ax = new("2 · Model choice is the field's standard for this benchmark",
-              "Status: done (§4). We add Gemma-3-4B-IT as a second family with the unchanged recipe (slide 10).")
-table(ax, ["Paper", "Venue", "Model(s) for TruthfulQA", "Reports open-ended T×I?"], [
-    ["ITI (Li et al.)", "NeurIPS 2023", "LLaMA-7B; LLaMA-2-7B-Chat in RaLFiT's re-run", "yes"],
-    ["TruthX (Zhang et al.)", "ACL 2024", "LLaMA-2-7B-Chat (+ others)", "yes"],
-    ["LoFiT (Yin et al.)", "NeurIPS 2024", "LLaMA-2-7B (base)", "partly (GPT-4 judge)"],
-    ["BiPO (Cao et al.)", "NeurIPS 2024", "LLaMA-2-7B-Chat", "no (MC1/MC2 only)"],
-    ["RaLFiT (Li et al.)", "ACL Findings 2025", "LLaMA-2-7B-Chat (+ LLaMA-3)", "yes"],
-    ["IDEEA (Wang et al.)", "EMNLP Findings 2026", "LLaMA-2-7B (+ 5 others)", "yes (open judges)"],
-    ["**Ours", "**", "**LLaMA-2-7B-Chat + Gemma-3-4B-IT", "**yes, both aggregations"],
-], widths=[3, 2.4, 4.6, 3], fs=13, rowh=0.1)
-done(fig, "models", top=0.84)
+# ---------------------------------------------------------------- 2·8·10 setup
+fig, axs = new("Same setup for every method we run (items 2, 8, 10)",
+               "Instead of copying other papers' numbers, we re-run each baseline ourselves under one protocol (RaLFiT's), so every comparison is apples to apples. "
+               "Right: each dot is one seed×fold run; bar = mean.", ncols=2, gridspec_kw={"width_ratios": [1.25, 1]})
+table(axs[0], ["", "Every method (ours & re-run baselines)"], [
+    ["Model / layer", "LLaMA-2-7B-Chat, layer 8 (as ITI, TruthX, BiPO, RaLFiT)"],
+    ["Test protocol", "2-fold CV: each of 817 Qs answered once by a model"],
+    ["", "that never trained on it (= RaLFiT, ITI, TruthX)"],
+    ["Seeds", "the random 2-fold split is redrawn 3 times"],
+    ["", "→ 6 runs per method (RaLFiT: 1 run)"],
+    ["Training data", "identical questions & answer pairs per fold"],
+    ["Prompt / decoding", "TruthfulQA 6-shot QA prompt, T = 0.3"],
+    ["Judges", "same fine-tuned GPT-4o-mini judges as RaLFiT"],
+    ["Calibration", "unsteered 56.5 (RaLFiT: 54.6); LoRA-DPO 80.1 (76.5)"],
+], widths=[2.2, 5.6], fs=12.5, rowh=0.095)
+meths = [("Unsteered", "baseline", C_BASE), ("Raw\nCAA", "caa_a1", C_CAA), ("Direct\n@5e-4", "dvzero_lr5e-4", C_DV),
+         ("Direct\n@2e-3", "dvzero_lr2e-3", C_DV), ("MAST", "mast", C_MAST), ("LoRA-\nDPO", "loradpo", C_LORA)]
+for x, (n, k, c) in enumerate(meths):
+    vals = [v["ti_product"] for v in T[k]["cells"].values()]
+    axs[1].bar(x, np.mean(vals), color=c, width=0.6, alpha=0.35)
+    axs[1].scatter(x + np.linspace(-0.18, 0.18, len(vals)), vals, color=c, s=40, zorder=3, edgecolor="white")
+axs[1].set_xticks(range(len(meths)), [n for n, _, _ in meths], fontsize=11)
+axs[1].set_ylabel("True × Info (%)")
+axs[1].set_ylim(45, 88)
+done(fig, "setup", wspace=0.12)
 
 # ---------------------------------------------------------------- 3. direct vector (LLaMA)
-fig, ax = new("3 · Direct vector vs MAST across learning rates (LLaMA-2-7B-Chat)",
+fig, ax = new("Direct vector vs MAST across learning rates, LLaMA-2-7B-Chat (item 3)",
               "Mean ± s.d. over 3 seeds × 2 folds. Same loss, data, steps; only the trainable object differs. "
               "Status: done. Answer to 'always or on occasion': on occasion (at MAST's lr), ties at each method's best lr.")
 LR = {"5e-4": 5e-4, "1e-3": 1e-3, "2e-3": 2e-3, "5e-3": 5e-3}
@@ -154,52 +166,92 @@ ax.text(0.99, 0.04, "MAST ahead, of 6 cells\n"
         transform=ax.transAxes, ha="right", va="bottom", fontsize=11.5, bbox=dict(fc="#f2f1ed", ec="none", boxstyle="round"))
 done(fig, "direct_vector")
 
-# ---------------------------------------------------------------- 4. direct vector (Gemma)
-fig, ax = new("3b · Direct vector on Gemma-3-4B-IT (preliminary, 1 seed, fold 1)",
-              "Status: running — lrs 3e-2 and 1e-1 pending. Bare-vector norm after training in brackets; MAST's learned correction has norm ≈ 180.")
-pts = []
-for lr in ("5e-4", "2e-3", "5e-3", "3e-2", "1e-1"):
+# ---------------------------------------------------------------- 3b. Gemma lr sweep
+def oti(p):
+    st = judged(p / "gpt_judge_results.json")[1]
+    return 100 * st["truth_accuracy"] * st["info_accuracy"]
+gl = []
+for lr in ("5e-4", "2e-3", "5e-3", "3e-2", "1e-1", "3e-1"):
     d = O / f"rg4b_dvzero_lr{lr}_s42/fold1"
-    for jf in ("gpt_judge_results.json", "open_judge_results.json"):
-        f = d / "mlp_mc/scale_1.00" / jf
-        if f.exists():
-            _, st = judged(f)
-            pts.append((float(lr), 100 * st["truth_accuracy"] * st["info_accuracy"],
-                        json.loads((d / "meta.json").read_text())["v_final_norm"]))
-            break
-_, gm = judged(O / "g4b_bn8_full/mlp_mc/scale_1.00/gpt_judge_results.json")
-_, gb = judged(O / "g4b_bn8_full/baseline/scale_0.00/gpt_judge_results.json")
-ax.plot([p[0] for p in pts], [p[1] for p in pts], color=C_DV, marker="s", ms=10, lw=2.2, label="direct vector (zero init)")
-for x, y, n in pts:
-    ax.text(x, y + 1.5, f"[{n:.0f}]", ha="center", fontsize=11, color=INK2)
-ax.axhline(100 * gm["truth_accuracy"] * gm["info_accuracy"], color=C_MAST, lw=2.2, label="MAST, lr 5e-4 (unchanged from LLaMA)")
-ax.axhline(100 * gb["truth_accuracy"] * gb["info_accuracy"], color=C_BASE, lw=1.5, ls=":", label="unsteered")
+    if (d / "mlp_mc/scale_1.00/gpt_judge_results.json").exists():
+        gl.append((float(lr), oti(d / "mlp_mc/scale_1.00"), json.loads((d / "meta.json").read_text())["v_final_norm"]))
+gmast = oti(O / "g4b_bn8_full/mlp_mc/scale_1.00")
+fig, ax = new("Direct vector vs MAST on Gemma-3-4B-IT (item 3, preliminary)",
+              "Seed 42, fold 1, GPT-4o-mini judges. Labels: norm of the learned vector. MAST uses its LLaMA settings unchanged (lr 5e-4); "
+              "Gemma's residual activations are ~50× larger than LLaMA's (||v_CAA|| ≈ 134 vs 2.5).")
+ax.plot([g[0] for g in gl], [g[1] for g in gl], color=C_DV, marker="s", ms=10, lw=2.2, label="direct vector (zero init)")
+for x, y, n in gl:
+    ax.text(x, y + 1.6, f"‖v‖ = {n:.0f}", ha="center", fontsize=10.5, color=INK2)
+ax.axhline(gmast, color=C_MAST, lw=2.2, label=f"MAST, lr 5e-4 ({gmast:.1f})")
+ax.axhline(oti(O / "g4b_bn8_full/baseline/scale_0.00"), color=C_BASE, lw=1.5, ls=":", label="unsteered")
 ax.set_xscale("log")
-ax.set_xlim(3e-4, 2e-1)
-ax.set_ylim(45, 95)
 ax.set_xlabel("learning rate (direct vector)")
 ax.set_ylabel("True × Info (%)")
-ax.legend(frameon=False, loc="center left", fontsize=12)
+ax.set_ylim(45, 100)
+ax.legend(frameon=False, fontsize=12, loc="upper left")
 done(fig, "direct_vector_gemma")
 
-# ---------------------------------------------------------------- 5. literature
-fig, ax = new("4 · Literature since submission (and direct-vector prior work)",
-              "Status: done; key claims verified against the papers (docs/lit_update_oct2026.md).")
-table(ax, ["Paper", "What it does", "Relation to us"], [
-    ["BiPO (NeurIPS'24)", "single vector, preference loss, LLaMA-2-7B-Chat", "closest prior; MC only, one lr, no LoRA baseline"],
-    ["LoFiT (NeurIPS'24)", "learned head offsets, DPO, 2-fold CV", "base model; lr sensitivity noted"],
-    ["RED (ACL'24)", "learned vectors at every layer", "70.85 T×I in RaLFiT's table"],
-    ["Dunefsky & Cohan (COLM'25)", "vector from one example", "variance across examples/hyperparams"],
-    ["RePS (NeurIPS'25)", "compares vector/LoReFT/LoRA objectives", "needs tuning trick for stability"],
-    ["PrOSV (ICML'26)", "trained steering factor + direction", "lr/init scale critical for stability"],
-    ["IDEEA (EMNLP F'26)", "input-dependent CAA, 6 models", "different judges/split — not comparable"],
-    ["Sun et al. (COLM'24)", "massive activations", "explains why raw CAA fails here"],
-], widths=[3.2, 4.6, 4.6], fs=12.5, rowh=0.095)
+# ---------------------------------------------------------------- 3c. same settings across models
+best = {"LLaMA-2-7B-Chat": (O / "rcv_dvzero_lr2e-3_s42/fold1/mlp_mc/scale_1.00", "2e-3"),
+        "Gemma-3-4B-IT": (O / "rg4b_dvzero_lr3e-1_s42/fold1/mlp_mc/scale_1.00", "3e-1")}
+rows = [("MAST, lr 5e-4 (both models)", O / "rcv_main_s42/fold1/mlp_mc/scale_1.00", O / "g4b_bn8_full/mlp_mc/scale_1.00", C_MAST),
+        ("direct vector, lr 2e-3 (both models)", O / "rcv_dvzero_lr2e-3_s42/fold1/mlp_mc/scale_1.00", O / "rg4b_dvzero_lr2e-3_s42/fold1/mlp_mc/scale_1.00", "#f2a07c"),
+        ("direct vector, best lr per model (2e-3 / 3e-1)", best["LLaMA-2-7B-Chat"][0], best["Gemma-3-4B-IT"][0], C_DV),
+        ("direct vector × ||v_CAA||, lr 8e-4 (both models)", O / "rcv_dvscaled_lr8e-4_s42/fold1/mlp_mc/scale_1.00", O / "rg4b_dvscaled_lr8e-4_s42/fold1/mlp_mc/scale_1.00", "#4a3aa7")]
+fig, ax = new("Same hyperparameters on two models (item 3, preliminary)",
+              "Seed 42, fold 1, GPT-4o-mini judges. 'Direct vector × ||v_CAA||': v = s·u with s = norm of that model's CAA vector (fixed), u trained; "
+              "one lr then gives a step size proportional to the model's activation scale.")
+xx = np.arange(2)
+wd = 0.2
+for k, (lab, pl, pg, c) in enumerate(rows):
+    vals = [oti(pl), oti(pg)]
+    ax.bar(xx + (k - 1.5) * wd, vals, wd * 0.92, color=c, label=lab)
+    for x, v in zip(xx, vals):
+        ax.text(x + (k - 1.5) * wd, v + 1, f"{v:.1f}", ha="center", fontsize=11)
+ax.axhline(0, color=INK2, lw=0.5)
+ax.set_xticks(xx, list(best))
+ax.set_ylim(40, 105)
+ax.set_ylabel("True × Info (%)")
+ax.legend(frameon=False, fontsize=11.5, loc="upper left")
+done(fig, "same_settings")
+
+# ---------------------------------------------------------------- 3d. loss
+fig, ax = new("Our margin loss vs BiPO's preference loss (item 3)",
+              "Direct vector (zero init), identical data, steps and generation; only the loss differs. LLaMA-2-7B-Chat, seed 42, both folds, GPT-4o-mini judges. "
+              "Remaining BiPO seeds are queued.")
+bp = []
+for lr in ("5e-4", "2e-3"):
+    for lab, pref, c in (("BiPO loss", "rcv_bipo_lr", "#e87ba4"), ("our margin loss", "rcv_dvzero_lr", C_DV)):
+        vals = [oti(O / f"{pref}{lr}_s42/fold{f}/mlp_mc/scale_1.00") for f in (1, 2)
+                if (O / f"{pref}{lr}_s42/fold{f}/mlp_mc/scale_1.00/gpt_judge_results.json").exists()]
+        bp.append((lr, lab, c, vals))
+for k, (lr, lab, c, vals) in enumerate(bp):
+    x = k + (k // 2) * 0.6
+    ax.bar(x, np.mean(vals), color=c, width=0.8, label=lab if k < 2 else None)
+    ax.scatter(np.full(len(vals), x) + np.linspace(-0.12, 0.12, len(vals)), vals, color=INK, s=28, zorder=3)
+    ax.text(x, np.mean(vals) + 1.2, f"{np.mean(vals):.1f}", ha="center", fontsize=12)
+ax.set_xticks([0.5, 3.1], ["lr 5e-4", "lr 2e-3"])
+ax.set_ylim(50, 92)
+ax.set_ylabel("True × Info (%)  (bar = mean of 2 folds, dots = folds)")
+ax.legend(frameon=False, fontsize=12, loc="upper left")
+done(fig, "loss")
+
+# ---------------------------------------------------------------- 4. literature
+fig, ax = new("Literature that drives our decisions (item 4)",
+              "Status: done; full survey incl. 2026 papers (IDEEA, RePS, PrOSV, HyperSteer) in docs/lit_update_oct2026.md, claims verified against the papers.")
+table(ax, ["Paper", "Decision it informs"], [
+    ["Lin et al. 2022 (TruthfulQA)", "original metric definition (items 6–7)"],
+    ["RaLFiT, Li et al. 2025 (ACL Findings)", "strongest prior result → our protocol, judges, LoRA-DPO baseline"],
+    ["BiPO, Cao et al. 2024 (NeurIPS)", "closest prior direct-vector method; MC only → our open-ended comparison is new"],
+    ["LoFiT / RED (2024)", "learned offsets already work → training vectors is not new per se"],
+    ["Dunefsky & Cohan 2025; RePS 2025", "optimised vectors are hyperparameter-sensitive → supports our lr analysis"],
+    ["Sun et al. 2024 (massive activations)", "explains why raw CAA fails on this model"],
+], widths=[4.2, 8.6], fs=13.5, rowh=0.11)
 done(fig, "literature", top=0.84)
 
 # ---------------------------------------------------------------- 6. Table 1
 fig = plt.figure(figsize=(13.33, 7.5))
-fig.text(0.04, 0.95, "5 · Restructured Table 1 (current draft)", fontsize=21, fontweight="bold", color=INK, va="top")
+fig.text(0.04, 0.95, "Restructured Table 1, current draft (item 5)", fontsize=21, fontweight="bold", color=INK, va="top")
 fig.text(0.04, 0.035, "Status: done. MAST: acts on activations, weights unchanged, training needed. Two blocks: reported by RaLFiT vs re-run by us.",
          fontsize=12, color=INK2)
 from PIL import Image  # noqa: E402
@@ -213,11 +265,11 @@ fig.savefig(OUT / f"{len(SLIDES) + 1:02d}_table1.png", dpi=110)
 SLIDES.append(fig)
 
 # ---------------------------------------------------------------- 7. metric
-fig, ax = new("6–7 · Two definitions of True × Info — we report both",
-              "Status: done (§4 + Appendix B). Main tables use the product (RaLFiT / ITI convention); per-item is the original TruthfulQA definition.")
+fig, ax = new("Which True × Info definition? (items 6–7)",
+              "Proposal: main tables use the product (as RaLFiT and the SOTA tables, so rows are comparable); the original paper's per-answer definition goes to the appendix. Decision for today.")
 ax.axis("off")
-ax.text(0.0, 0.97, "Product of rates (RaLFiT, TruthX, ITI's code):   T×I = mean(truthful) × mean(informative)", fontsize=14, transform=ax.transAxes, va="top")
-ax.text(0.0, 0.89, "Per answer (Lin et al. 2022, '% true and informative'):   T∧I = mean(truthful AND informative)", fontsize=14, transform=ax.transAxes, va="top")
+ax.text(0.0, 0.97, "Product of rates (RaLFiT, TruthX, ITI's code — the SOTA tables):   mean(truthful) × mean(informative)", fontsize=14, transform=ax.transAxes, va="top")
+ax.text(0.0, 0.89, "Per answer (Lin et al. 2022, the original TruthfulQA paper, '% true and informative'):   mean(truthful AND informative)", fontsize=14, transform=ax.transAxes, va="top")
 sub = fig.add_axes([0.08, 0.16, 0.85, 0.5])
 meths = [("Unsteered", "baseline"), ("Raw CAA α=1", "caa_a1"), ("Direct vector (best lr)", "dvzero_lr2e-3"), ("MAST", "mast"), ("LoRA-DPO", "loradpo")]
 xx = np.arange(len(meths))
@@ -233,92 +285,116 @@ sub.set_ylabel("%")
 fig.savefig(OUT / f"{len(SLIDES) + 1:02d}_metric.png", dpi=110)
 SLIDES.append(fig)
 
-# ---------------------------------------------------------------- 8. seeds
-fig, ax = new("8 · Every method: 3 seeds × 2 folds",
-              "Each dot is one seed×fold cell (≈408 test questions); bar = mean. Status: done for all re-run methods.")
-meths = [("Unsteered", "baseline", C_BASE), ("Raw CAA α=1", "caa_a1", C_CAA), ("Raw CAA α=2", "caa_a2", C_CAA),
-         ("Direct\n@5e-4", "dvzero_lr5e-4", C_DV), ("Direct\n@2e-3", "dvzero_lr2e-3", C_DV),
-         ("MAST", "mast", C_MAST), ("LoRA-DPO", "loradpo", C_LORA)]
-for x, (n, k, c) in enumerate(meths):
-    vals = [v["ti_product"] for v in T[k]["cells"].values()]
-    ax.bar(x, np.mean(vals), color=c, width=0.6, alpha=0.35)
-    ax.scatter(x + np.linspace(-0.18, 0.18, len(vals)), vals, color=c, s=45, zorder=3, edgecolor="white")
-ax.set_xticks(range(len(meths)), [n for n, _, _ in meths])
-ax.set_ylabel("True × Info (%)")
-ax.set_ylim(45, 88)
-done(fig, "seeds")
-
-# ---------------------------------------------------------------- 9. Rev 3 generality
-fig, axs = new("9 · Reviewer 3: generalisation experiments (already run)",
-               "Status: done; 4 extra category-hold-out seeds being scored. Left/middle: True∧Info / True×Info; right: exact match.", ncols=3)
+# ---------------------------------------------------------------- 9a method beyond TruthfulQA/LLaMA
+fig, axs = new("Does the method work beyond TruthfulQA and LLaMA? (item 9, Reviewer 3)",
+               "Each panel trains the recipe on the target model/task itself (seed 42). Positive on categories, model and a second behaviour; "
+               "negative on knowledge QA (PopQA: unsteered greedy vs trained vector sampled at T=0.3 — indicative). Not yet run: HaluEval (candidate for Friday).", ncols=4)
 ch = []
 for fold in ("A", "B"):
-    ch.append([100 * judged(O / f"cathold_fold_{fold}/{v}/{s}/gpt_judge_results.json")[1]["truth_and_info_accuracy"]
-               for v, s in (("baseline", "scale_0.00"), ("mlp_mc", "scale_1.00"))])
+    ch.append([100 * judged(O / f"cathold_fold_{fold}/{v}/{s_}/gpt_judge_results.json")[1]["truth_and_info_accuracy"]
+               for v, s_ in (("baseline", "scale_0.00"), ("mlp_mc", "scale_1.00"))])
 for k, (lab, c) in enumerate((("unsteered", C_BASE), ("MAST", C_MAST))):
     axs[0].bar(np.arange(2) + (k - 0.5) * 0.36, [v[k] for v in ch], 0.34, color=c, label=lab)
 axs[0].set_xticks([0, 1], ["fold A", "fold B"])
-axs[0].set_title("Unseen categories (seed 42)", fontsize=13)
+axs[0].set_title("Unseen TruthfulQA categories\n(Truth∧Info)", fontsize=12)
 axs[0].set_ylim(0, 100)
-axs[0].legend(frameon=False, fontsize=11)
+axs[0].legend(frameon=False, fontsize=10)
 g = {}
-for lab, v, s in (("unsteered", "baseline", "scale_0.00"), ("raw CAA", "steered", "scale_1.00"), ("MAST", "mlp_mc", "scale_1.00")):
-    rr = judged(O / f"g4b_bn8_full/{v}/{s}/gpt_judge_results.json")[0] + judged(O / f"rcv_g4bmain_s42/fold2/{v}/{s}/gpt_judge_results.json")[0]
+for lab, v, s_ in (("unsteered", "baseline", "scale_0.00"), ("raw CAA", "steered", "scale_1.00"), ("MAST", "mlp_mc", "scale_1.00")):
+    rr = judged(O / f"g4b_bn8_full/{v}/{s_}/gpt_judge_results.json")[0] + judged(O / f"rcv_g4bmain_s42/fold2/{v}/{s_}/gpt_judge_results.json")[0]
     g[lab] = 100 * np.mean([r["truth_judgment"] == "yes" for r in rr]) * np.mean([r["info_judgment"] == "yes" for r in rr])
 axs[1].bar(range(3), list(g.values()), color=[C_BASE, C_CAA, C_MAST], width=0.6)
 axs[1].set_xticks(range(3), list(g))
 axs[1].set_ylim(0, 100)
-axs[1].set_title("Gemma-3-4B-IT (2-fold, seed 42)", fontsize=13)
+axs[1].set_title("Another model: Gemma-3-4B-IT\n(True×Info, 2-fold)", fontsize=12)
+abd = json.loads((O / "box5090_final/halluc_vector/ab_eval_hallucination.json").read_text())["scales"]
+abv = [abd[k]["behavior_match_rate"] for k in ("-1.0", "0.0", "1.0")]
+axs[2].bar(range(3), abv, color=[C_MAST, C_BASE, C_DV], width=0.6)
+axs[2].set_xticks(range(3), ["α = −1", "unsteered", "α = +1"])
+axs[2].set_ylim(0, 110)
+axs[2].set_title("Another behaviour: hallucination\n(% choosing hallucinated answer, n=50)", fontsize=12)
 pq = json.loads((O / "multiseed/seed_42/transfer_popqa.json").read_text())["variants"]
-nq = json.loads((O / "multiseed/seed_42/transfer_nq.json").read_text())["variants"]
-axs[2].bar(np.arange(2) - 0.18, [pq["baseline"]["em_contains"], nq["baseline"]["em_contains"]], 0.34, color=C_BASE, label="unsteered")
-axs[2].bar(np.arange(2) + 0.18, [pq["steered"]["em_contains"], nq["steered"]["em_contains"]], 0.34, color=C_MAST, label="+ vector")
-axs[2].set_xticks([0, 1], ["PopQA", "NQ-open"])
-axs[2].set_title("Knowledge QA (seed 42)", fontsize=13)
-axs[2].legend(frameon=False, fontsize=11, loc="upper right")
-axs[2].set_ylim(0, 42)
+axs[3].bar([0, 1], [pq["baseline"]["em_contains"], 26.3], color=[C_BASE, C_MAST], width=0.6)
+axs[3].set_xticks([0, 1], ["unsteered", "vector trained\non PopQA"])
+axs[3].set_ylim(0, 42)
+axs[3].set_title("Knowledge task: PopQA\n(exact match, n=1000)", fontsize=12)
 for ax in axs:
-    for p in ax.patches:
-        ax.text(p.get_x() + p.get_width() / 2, p.get_height() + 1, f"{p.get_height():.0f}", ha="center", fontsize=11)
-done(fig, "rev3")
+    for p_ in ax.patches:
+        ax.text(p_.get_x() + p_.get_width() / 2, p_.get_height() + 1, f"{p_.get_height():.0f}", ha="center", fontsize=11)
+done(fig, "method_beyond")
 
-# ---------------------------------------------------------------- 10. protocol
-fig, axs = new("10 · Protocol aligned with RaLFiT", "Status: done (§4). Right: our re-runs vs RaLFiT's reported numbers (same judge family, 2-fold CV).",
-               ncols=2, gridspec_kw={"width_ratios": [1.5, 1]})
-table(axs[0], ["", "RaLFiT", "Ours"], [
-    ["Split", "2-fold CV, all 817", "2-fold CV, all 817"],
-    ["Repetitions", "1 run", "3 seeds"],
-    ["Judges", "fine-tuned GPT-4o-mini", "fine-tuned GPT-4o-mini"],
-    ["Metric", "Truth × Info", "both aggregations"],
-    ["Generation prompt", "not stated", "6-shot TruthfulQA QA (as ITI)"],
-    ["MC1 / MC2", "lm-eval", "lm-eval, test half"],
-    ["LoRA baseline", "r8 on W_O, W_down, DPO", "same (5.96M params)"],
-], widths=[2.2, 2.6, 2.8], fs=12.5, rowh=0.11)
-labs = ["unsteered", "LoRA-DPO", "RaLFiT"]
-axs[1].bar(np.arange(3) - 0.18, [54.56, 76.54, 77.40], 0.34, color=C_CAA, label="reported by RaLFiT")
-axs[1].bar(np.arange(2) + 0.18, [m("baseline")[0], m("loradpo")[0]], 0.34, color=[C_BASE, C_LORA], label="our re-run")
-axs[1].set_xticks(range(3), labs)
-axs[1].set_ylim(40, 90)
-axs[1].legend(frameon=False, fontsize=11, loc="upper left")
-axs[1].text(2.0, 42, "RaLFiT: no public code", ha="center", fontsize=10, color=INK2)
-for p in axs[1].patches:
-    axs[1].text(p.get_x() + p.get_width() / 2, p.get_height() + 0.8, f"{p.get_height():.1f}", ha="center", fontsize=10.5)
-done(fig, "protocol", wspace=0.15)
+# ---------------------------------------------------------------- 9a2 Qwen3-4B
+qd = O / "rq4b_main_L14/fold1"
+qrows = [("unsteered", qd / "baseline/scale_0.00", C_BASE), ("raw CAA", qd / "steered/scale_1.00", C_CAA),
+         ("MAST", qd / "mlp_mc/scale_1.00", C_MAST)]
+fig, ax = new("A third model family: Qwen3-4B (item 9, preliminary)",
+              "Same recipe and hyperparameters as LLaMA (k=8, lr 5e-4, 100 steps); layer 14 chosen from training loss only (vs layer 9). "
+              "Seed 42, fold 1, GPT-4o-mini judges. Plain few-shot prompt, no chat template.")
+for x, (lab, p_, c) in enumerate(qrows):
+    f = p_ / "gpt_judge_results.json"
+    if f.exists():
+        st = judged(f)[1]
+        t, i_ = 100 * st["truth_accuracy"], 100 * st["info_accuracy"]
+        ax.bar(x, t * i_ / 100, color=c, width=0.6)
+        ax.text(x, t * i_ / 100 + 1, f"{t * i_ / 100:.1f}\n(Truth {t:.0f}, Info {i_:.0f})", ha="center", fontsize=12)
+    else:
+        ax.text(x, 45, "running", ha="center", fontsize=13, color=INK2)
+ax.set_xticks(range(3), [r[0] for r in qrows])
+ax.set_ylim(0, 105)
+ax.set_ylabel("True × Info (%)")
+done(fig, "qwen")
 
-# ---------------------------------------------------------------- 11. open questions
-fig, ax = new("Open questions for today", None)
+# ---------------------------------------------------------------- 9b capability preservation
+fig, axs = new("Capability preservation: TruthfulQA vector on other tasks (item 9)",
+               "Same LLaMA-2-7B-Chat vector (seed 42), no retraining. Left: zero-shot lm-eval accuracy. Right: open QA exact match "
+               "(1,000 questions each). RaLFiT reports roughly neutral changes on ARC/HellaSwag/MMLU (+4.4/+1.2/−0.5, different protocol).", ncols=2)
+cap = json.loads((O / "coherence_bn8_seed42/coherence_results.json").read_text())
+def capv(x):
+    mm = [x[k]["acc"] for k in x if k.startswith("mmlu_") and x[k]["acc"] is not None]
+    return [100 * x["arc_easy"]["acc"], 100 * x["arc_challenge"]["acc_norm"], 100 * x["hellaswag"]["acc_norm"], 100 * np.mean(mm)]
+b_, s2 = capv(cap["baseline"]), capv(cap["steered"])
+xx = np.arange(4)
+axs[0].bar(xx - 0.18, b_, 0.34, color=C_BASE, label="unsteered")
+axs[0].bar(xx + 0.18, s2, 0.34, color=C_MAST, label="+ TruthfulQA vector")
+axs[0].set_xticks(xx, ["ARC-Easy", "ARC-Chall.", "HellaSwag", "MMLU\n(subject mean)"])
+axs[0].set_ylim(0, 95)
+axs[0].legend(frameon=False, fontsize=11)
+nq = json.loads((O / "multiseed/seed_42/transfer_nq.json").read_text())["variants"]
+axs[1].bar(np.arange(2) - 0.18, [pq["baseline"]["em_contains"], nq["baseline"]["em_contains"]], 0.34, color=C_BASE, label="unsteered")
+axs[1].bar(np.arange(2) + 0.18, [pq["steered"]["em_contains"], nq["steered"]["em_contains"]], 0.34, color=C_MAST, label="+ TruthfulQA vector")
+axs[1].set_xticks([0, 1], ["PopQA", "NQ-open"])
+axs[1].set_ylim(0, 42)
+axs[1].legend(frameon=False, fontsize=11)
+for ax in axs:
+    for p_ in ax.patches:
+        ax.text(p_.get_x() + p_.get_width() / 2, p_.get_height() + 0.8, f"{p_.get_height():.1f}", ha="center", fontsize=10.5)
+done(fig, "capability")
+
+# ---------------------------------------------------------------- 11. talking points
+fig, ax = new("Where this leaves us", None)
 ax.axis("off")
-for i, ln in enumerate([
-    "1.  MAST ≈ direct vector on LLaMA (each at its best lr). Keep MAST as the method and say so,",
-    "     or reframe around supervised steering vectors?",
-    "2.  Gemma: the bare vector fails at LLaMA's lrs; MAST transfers unchanged.",
-    "     Worth ~1 GPU-day to test 2–3 more models?",
-    "3.  MAST is 2.9 pts below LoRA-DPO (same data). Re-implement RaLFiT itself",
-    "     (~½ day; no public code)?",
-    "4.  Interpretability findings (appendix A1–A2): include, or keep for the thesis?",
-]):
-    ax.text(0.0, 0.92 - i * 0.1, ln, fontsize=15, transform=ax.transAxes, va="top", color=INK)
-done(fig, "questions")
+lines = [
+    ("h", "1.  All review points are addressed (status slide)."),
+    ("t", "     But the answers make the paper weaker: the MLP behaves mostly as a step-size scaler — a directly optimised vector"),
+    ("t", "     with a learning rate matched to the activation scale ties MAST on LLaMA and is ~2 pts behind on Gemma (1 seed)."),
+    ("t", "     The CAA starting point matters less than reported: noise input is ~6 pts below MAST over 3 seeds (was ~17 with 1 seed)."),
+    ("h", "2.  Realistic ways to reframe"),
+    ("t", "     a) The loss: our margin loss vs BiPO's — small edge so far (seed 42 only); a finding only if it holds across seeds and models."),
+    ("t", "     b) An empirical study: one supervised vector ≈ 88% of LoRA-DPO's gain without weight changes; why CAA fails; limits."),
+    ("t", "     c) Interpretability (what the supervised direction is, why CAA misses it) — promising but needs much more work."),
+    ("h", "3.  One more meeting this Friday: what we present, and whether we submit on 12 Oct."),
+    ("t", "     By then: loss comparison on all seeds, Qwen3-4B, and whichever of (a)–(c) we pick today to push."),
+    ("h", "4.  API key for the fine-tuned GPT judges"),
+    ("t", "     Spent this round ≈ $2 (≈ $0.02 per 408-answer run). Two options for the rest of the cycle:"),
+    ("t", "     conservative — GPT judges only for core runs: ≈ $3.5–5 in total;"),
+    ("t", "     everything on GPT judges (one judge for every number, cleaner bookkeeping): ≈ $6–9 in total."),
+]
+y = 0.97
+for kind, ln in lines:
+    ax.text(0.0, y, ln.strip() if kind == "h" else ln, fontsize=16 if kind == "h" else 13,
+            fontweight="bold" if kind == "h" else "normal", color=INK if kind == "h" else INK2, transform=ax.transAxes, va="top")
+    y -= 0.095 if kind == "h" else 0.075
+done(fig, "talking_points")
 
 # ---------------------------------------------------------------- A1. geometry + CAA
 def vec(p):
@@ -378,6 +454,44 @@ for ax, vals, t in ((axs[0], hed, "hedged answers (%)"), (axs[1], sub_, "Truth�
     for x, v in enumerate(vals):
         ax.text(x, v + 1, f"{v:.0f}", ha="center", fontsize=11)
 done(fig, "A2_hedging")
+
+# ---------------------------------------------------------------- A3. interventions
+X = lambda n: O / f"{n}/fold1/mlp_mc/scale_1.00"  # noqa: E731
+groups = [
+    ("reference", [("Unsteered", O / "rcv_main_s42/fold1/baseline/scale_0.00", C_BASE),
+                   ("MAST", O / "rcv_main_s42/fold1/mlp_mc/scale_1.00", C_MAST),
+                   ("Direct vector (best lr)", O / "rcv_dvzero_lr2e-3_s42/fold1/mlp_mc/scale_1.00", C_DV),
+                   ("LoRA-DPO", O / "rcv_loradpo_s42/fold1/mlp_mc/scale_1.00", C_LORA)]),
+    ("remove / subtract direction", [
+                   ("Direct vector subtracted (α = −1)", X("rx_dvz_neg"), C_DV),
+                   ("Unsteered, direction removed at all layers", X("rx_base_ablall_dvz"), C_BASE),
+                   ("LoRA-DPO, direction removed at layer 8", X("rx_lora_abl8_dvz"), C_LORA),
+                   ("LoRA-DPO, direction removed at all layers", X("rx_lora_ablall_dvz"), C_LORA)]),
+    ("other vectors", [
+                   ("Average of 3 supervised vectors", X("rx_consensus"), C_MAST),
+                   ("LoRA's activation shift as a vector (α = 2)", X("rx_distilled_a2"), C_LORA),
+                   ("CAA, answer-token pooling (no artefact)", X("rx_caa_answer"), C_CAA),
+                   ("Geometry-of-Truth direction (α = 1)", X("rx_gotdir_a1"), C_CAA)]),
+]
+fig, ax = new("Appendix A3 · Exploratory: interventions (seed 42, fold 1)",
+              "GPT-4o-mini judges for every row (408 test questions). 'Direction' = the zero-init supervised vector, which has no massive-activation component.")
+y, ticks, labs = 0, [], []
+for gname, rows in groups[::-1]:
+    for lab, p, c in rows[::-1]:
+        f = p / "gpt_judge_results.json"
+        if not f.exists():
+            continue
+        st = judged(f)[1]
+        t, i_ = 100 * st["truth_accuracy"], 100 * st.get("info_accuracy", float("nan"))
+        ax.barh(y, t * i_ / 100, color=c, height=0.65)
+        ax.text(t * i_ / 100 + 1, y, f"{t * i_ / 100:.1f}   (Truth {t:.0f}, Info {i_:.0f})", va="center", fontsize=10.5)
+        ticks.append(y); labs.append(lab); y += 1
+    ax.text(-0.01, y - 0.35, gname, transform=ax.get_yaxis_transform(), ha="right", fontsize=10.5, fontweight="bold", color=INK2)
+    y += 0.8
+ax.set_yticks(ticks, labs, fontsize=10.5)
+ax.set_xlim(0, 105)
+ax.set_xlabel("True × Info (%)")
+done(fig, "A3_interventions", left=0.3)
 
 with PdfPages(OUT / "deck.pdf") as pdf:
     for f in SLIDES:

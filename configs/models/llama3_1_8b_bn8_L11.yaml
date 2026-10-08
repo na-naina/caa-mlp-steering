@@ -1,0 +1,28 @@
+# Llama-3.1-8B-Instruct (fallback; gated: accept licence + HF_TOKEN). Standard Llama path, works on the
+# pinned transformers 4.57.3. 128k vocab -> batch 1 x accum 8, sharded over 2x32GB like Qwen3-8B.
+# Paper recipe (bn=8, no bank, lr 5e-4). Layer-sweep candidate L11/32 (34% depth);
+# pick the layer by final train loss / margin acc only (train-signal protocol).
+model:
+  name: meta-llama/Llama-3.1-8B-Instruct
+  layer: 11
+  family: llama3
+  dtype: bfloat16
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    gradient_checkpointing: true
+    lr: 5.0e-4
+    batch_size: 1
+    gradient_accumulation_steps: 8
+    steps_per_epoch: 400
+  gen_training:
+    lr: 5.0e-4
+    batch_size: 1
+    gradient_accumulation_steps: 8
+
+steering:
+  vector_bank:
+    num_vectors: 0
+  enabled_variants: [baseline, steered, mlp_mc]

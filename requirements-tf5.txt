@@ -1,0 +1,32 @@
+# Second environment for 2026 models (Qwen3.5, Gemma-4), which need transformers 5.x.
+# Keep LLaMA-2 / Gemma-3 / Qwen3 runs on requirements.txt (transformers 4.57.3) so their
+# numbers stay reproducible; install this into a separate venv, e.g.
+#   python -m venv .venv-tf5 && .venv-tf5/bin/pip install -r requirements-tf5.txt
+# Checked (meta-device + tiny random models, 8 Oct 2026): repo steering hooks, extraction,
+# backward through the vector, generate, and PEFT LoRA targeting all work on transformers 5.19.0
+# with torch 2.9.1 and peft 0.21.2. trl / lm-eval compatibility with transformers 5 was NOT
+# tested locally: run one LoRA-DPO step and one lm-eval MC task on the box before queueing.
+torch==2.9.1
+transformers==5.19.0
+huggingface_hub>=1.0
+accelerate>=1.0
+datasets==4.4.2
+pyyaml>=6.0.0
+numpy>=1.24.0
+pandas>=2.1.0
+scipy>=1.11.0
+tqdm>=4.66.0
+sentencepiece>=0.1.99
+protobuf>=4.24.0
+openai>=1.40.0
+python-dotenv>=1.0.0
+lm-eval>=0.4.13
+peft>=0.21.0
+trl
+matplotlib>=3.7.0
+tabulate>=0.9.0
+
+# Qwen3.5 Gated-DeltaNet fast path; without these, transformers falls back to a pure-torch
+# implementation (correct but markedly slower for 512-token training batches).
+flash-linear-attention
+causal-conv1d
