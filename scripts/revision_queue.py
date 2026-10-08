@@ -125,12 +125,118 @@ def mc_jobs(seed: int, fold: int):
                                f"--variants steered --label dvzero")
 
 
+# ---------------------------------------------------------------------------
+# 8 Oct overnight blocks (single 96 GB card): every job is "train && generate",
+# so one queue with several slots keeps the card busy without phase ordering.
+# ---------------------------------------------------------------------------
+PY5 = ".venv-tf5/bin/python"   # transformers 5.x env for Gemma-4 / Qwen3.5
+# Paper recipe on one card: batch 8, no accumulation, 2 x 50 steps (the tf5 configs
+# default to 4 x accum 2 for 32 GB cards)
+FULL_BATCH = ("--set mlp.mc_training.batch_size=8 --set mlp.mc_training.gradient_accumulation_steps=1 "
+              "--set mlp.mc_training.steps_per_epoch=50")
+NEW_MODELS = {
+    # key: (python, config prefix, HF id, LoRA targets)
+    "g4e": (PY5, "gemma4_e4b_bn8_L", "google/gemma-4-E4B-it", "'re:.*language_model.*\\.(o_proj|down_proj)'"),
+    "q35": (PY5, "qwen3_5_9b_bn8_L", "Qwen/Qwen3.5-9B", "o_proj,out_proj,down_proj"),
+}
+CELLS = [(s, f) for s in (42, 123, 456) for f in (1, 2)]
+
+
+def both(e: Exp, py: str = PY) -> str:
+    return f"{e.train_cmd().replace(PY, py, 1)} && {e.gen_cmd().replace(PY, py, 1)}"
+
+
+def block_p0():
+    for s, f in CELLS:
+        spl, tag = f"data/splits/cv2_s{s}_fold{f}.json", f"s{s}f{f}"
+        for lr, dec in (("1e-4", "0.0001"), ("2e-4", "0.0002"), ("3e-4", "0.0003")):
+            e = Exp(f"mast_lr{lr}_{tag}", 0, "run", f"data/outputs/rcv_mast_lr{lr}_s{s}/fold{f}",
+                    f"--model {LLAMA} {MAST_ONLY} --set mlp.mc_training.lr={dec}", split=spl, seed=s)
+            yield e.name, both(e)
+    for s in (123, 456):
+        for f in (1, 2):
+            for lr in ("5e-4", "2e-3"):
+                yield (f"bipo_lr{lr}_s{s}f{f}",
+                       f"{PY} scripts/train_direct_vector.py --generate-only --loss bipo --seed {s} "
+                       f"--output-dir data/outputs/rcv_bipo_lr{lr}_s{s}/fold{f}")
+
+
+def block_sweep(key: str, layers: list[int]):
+    py, cfg, _, _ = NEW_MODELS[key]
+    for L in layers:
+        yield (f"{key}_sweep_L{L}",
+               f"{py} run.py --stage train-only --seed 42 --splits-file data/splits/cv2_s42_fold1.json "
+               f"--output-dir data/outputs/r{key}_sweep/L{L} --model {cfg}{L} {MAST_ONLY} {FULL_BATCH}")
+
+
+def block_new_model(key: str, layer: int, seeds=(42, 123, 456), pred_lr: str | None = None):
+    py, cfg, hf, targets = NEW_MODELS[key]
+    for s in seeds:
+        for f in (1, 2):
+            spl, tag = f"data/splits/cv2_s{s}_fold{f}.json", f"s{s}f{f}"
+            out = lambda m: f"data/outputs/rcv_{key}{m}_s{s}/fold{f}"  # noqa: E731
+            kw = dict(split=spl, seed=s)
+            exps = [
+                Exp(f"{key}_main_{tag}", 0, "run", out("main"),
+                    f"--model {cfg}{layer} {WITH_CAA} --set 'steering.caa_scales=[1.0, 2.0]' {FULL_BATCH}", **kw),
+                Exp(f"{key}_dvscaled_{tag}", 0, "dv", out("_dvscaled_lr8e-4"),
+                    f"--model {hf} --layer {layer} --init zero --scale-by-caa --lr 8e-4", **kw),
+                Exp(f"{key}_loradpo_{tag}", 0, "lora", out("_loradpo"),
+                    f"--model {hf} --include-pool --target-modules {targets} --lora-r 8 --lr 1e-4 "
+                    f"--epochs 5 --batch-size 8", **kw),
+            ]
+            if pred_lr and s == 42 and f == 1:
+                exps.append(Exp(f"{key}_dvpred_{tag}", 0, "dv", out(f"_dvzero_lr{pred_lr}"),
+                                f"--model {hf} --layer {layer} --init zero --lr {pred_lr}", **kw))
+            for e in exps:
+                yield e.name, both(e, py)
+
+
+def block_p3():
+    # Older 2025 models filled to 3 seeds x 2 folds (gemma3 s42 fold1/2 and qwen3 s42 fold1 exist)
+    olds = {"g4b": ("gemma3_4b_bn8_L13", "google/gemma-3-4b-it", 13, ""),
+            "q4b": ("qwen3_4b_bn8", "Qwen/Qwen3-4B", 14, " --set model.layer=14")}
+    for key, (cfg, hf, layer, extra) in olds.items():
+        for s, f in CELLS:
+            spl, tag = f"data/splits/cv2_s{s}_fold{f}.json", f"s{s}f{f}"
+            kw = dict(split=spl, seed=s)
+            skip_main = (key == "g4b" and s == 42) or (key == "q4b" and (s, f) == (42, 1))
+            if not skip_main:
+                e = Exp(f"{key}_main_{tag}", 2, "run", f"data/outputs/rcv_{key}main_s{s}/fold{f}",
+                        f"--model {cfg}{extra} {WITH_CAA} --set 'steering.caa_scales=[1.0, 2.0]'", **kw)
+                yield e.name, both(e)
+            e = Exp(f"{key}_dvscaled_{tag}", 2, "dv", f"data/outputs/rcv_{key}_dvscaled_lr8e-4_s{s}/fold{f}",
+                    f"--model {hf} --layer {layer} --init zero --scale-by-caa --lr 8e-4", **kw)
+            yield e.name, both(e)
+
+
+def write_block(name: str, jobs, path: str):
+    jobs = list(jobs)
+    with open(path, "w") as fh:
+        for n, c in jobs:
+            fh.write(f"{n}\t{c}\n")
+    print(f"{name}: {len(jobs)} jobs -> {path}")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--seeds", type=int, nargs="+", default=[42, 123, 456])
     p.add_argument("--max-priority", type=int, default=2)
     p.add_argument("--out-prefix", default="jobs")
+    p.add_argument("--block", choices=["p0", "sweep", "new", "p3"],
+                   help="emit one 8-Oct overnight block (combined train+generate jobs)")
+    p.add_argument("--key", choices=list(NEW_MODELS), help="new-model key for --block sweep/new")
+    p.add_argument("--layers", type=int, nargs="+", help="sweep layers, or the chosen layer for --block new")
+    p.add_argument("--pred-lr", help="bare-vector lr predicted by the activation-norm rule (seed 42 fold 1)")
+    p.add_argument("--block-seeds", type=int, nargs="+", default=[42, 123, 456])
     args = p.parse_args()
+    if args.block:
+        jobs = {"p0": lambda: block_p0(),
+                "sweep": lambda: block_sweep(args.key, args.layers),
+                "new": lambda: block_new_model(args.key, args.layers[0], tuple(args.block_seeds), args.pred_lr),
+                "p3": lambda: block_p3()}[args.block]()
+        write_block(args.block, jobs, f"{args.out_prefix}.txt")
+        return
 
     cells = [(s, f) for s in args.seeds for f in (1, 2)]
     exps = [e for s, f in cells for e in cell(s, f)] + list(extras())
