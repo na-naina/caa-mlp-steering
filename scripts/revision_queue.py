@@ -211,6 +211,43 @@ def block_p3():
             yield (e.name, *both(e))
 
 
+
+def block_p3x(g4e_layer: int | None = None):
+    """Reviewer/interp extras (seed 42): answer-pooled CAA alpha sweep (is raw CAA a strawman?),
+    bidirectional alpha dose-response of the ||v_CAA||-scaled direct vector, CAA pooling audit."""
+    se = f"{PY} scripts/steer_explore.py"
+    # LLaMA answer-token-pooled CAA, both folds (fold-2 variants extracted first, as a train job)
+    yield ("caavar_f2", f"{PY} scripts/caa_variants.py --splits-file data/splits/cv2_s42_fold2.json "
+           "--ref data/outputs/rcv_dvzero_lr2e-3_s42/fold2/vectors/optimized_vector.pt "
+           "--out-dir data/outputs/rx_caavar_f2", "")
+    for f, vdir in ((1, "rx_caavar"), (2, "rx_caavar_f2")):
+        for a in (1, 2, 4, 8):
+            yield (f"caaans_a{a}_f{f}", "",
+                   f"{se} --splits-file data/splits/cv2_s42_fold{f}.json --add data/outputs/{vdir}/answer.pt:{a} "
+                   f"--out data/outputs/rx_caaans_a{a}_s42f{f}")
+    # Dose response incl. negative alpha (fold 1): LLaMA, Gemma-3-4B, Gemma-4-E4B
+    models = [("llama", "", "data/outputs/rcv_dvscaled_lr8e-4_s42/fold1/vectors/optimized_vector.pt", PY),
+              ("g4b", "--model google/gemma-3-4b-it --layer 13",
+               "data/outputs/rg4b_dvscaled_lr8e-4_s42/fold1/vectors/optimized_vector.pt", PY)]
+    if g4e_layer is not None:
+        models.append(("g4e", f"--model google/gemma-4-E4B-it --layer {g4e_layer}",
+                       "data/outputs/rcv_g4e_dvscaled_lr8e-4_s42/fold1/vectors/optimized_vector.pt", PY5))
+    for key, m, vec, py in models:
+        for a in ("-1", "-0.5", "0.5", "1.5"):
+            yield (f"alpha_{key}_{a}", "",
+                   f"{py} scripts/steer_explore.py {m} --splits-file data/splits/cv2_s42_fold1.json "
+                   f"--add {vec}:{a} --out data/outputs/rx_alpha_{key}_{a}_s42f1")
+    # CAA pooling / massive-activation audit for the 2025 models (extraction only)
+    yield ("caavar_g4b", f"{PY} scripts/caa_variants.py --model google/gemma-3-4b-it --layer 13 "
+           "--splits-file data/splits/cv2_s42_fold1.json "
+           "--ref data/outputs/rg4b_dvscaled_lr8e-4_s42/fold1/vectors/optimized_vector.pt "
+           "--out-dir data/outputs/rx_caavar_g4b", "")
+    yield ("caavar_q4b", f"{PY} scripts/caa_variants.py --model Qwen/Qwen3-4B --layer 14 "
+           "--splits-file data/splits/cv2_s42_fold1.json "
+           "--ref data/outputs/rcv_q4b_dvscaled_lr8e-4_s42/fold1/vectors/optimized_vector.pt "
+           "--out-dir data/outputs/rx_caavar_q4b", "")
+
+
 def write_block(name: str, jobs, path: str):
     jobs = list(jobs)
     stem = path[:-4] if path.endswith(".txt") else path
@@ -227,7 +264,7 @@ def main():
     p.add_argument("--seeds", type=int, nargs="+", default=[42, 123, 456])
     p.add_argument("--max-priority", type=int, default=2)
     p.add_argument("--out-prefix", default="jobs")
-    p.add_argument("--block", choices=["p0", "sweep", "new", "p3"],
+    p.add_argument("--block", choices=["p0", "sweep", "new", "p3", "p3x"],
                    help="emit one 8-Oct overnight block (combined train+generate jobs)")
     p.add_argument("--key", choices=list(NEW_MODELS), help="new-model key for --block sweep/new")
     p.add_argument("--layers", type=int, nargs="+", help="sweep layers, or the chosen layer for --block new")
@@ -238,7 +275,8 @@ def main():
         jobs = {"p0": lambda: block_p0(),
                 "sweep": lambda: block_sweep(args.key, args.layers),
                 "new": lambda: block_new_model(args.key, args.layers[0], tuple(args.block_seeds), args.pred_lr),
-                "p3": lambda: block_p3()}[args.block]()
+                "p3": lambda: block_p3(),
+                "p3x": lambda: block_p3x(args.layers[0] if args.layers else None)}[args.block]()
         write_block(args.block, jobs, f"{args.out_prefix}.txt")
         return
 
