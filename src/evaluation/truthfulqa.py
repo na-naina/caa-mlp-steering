@@ -53,12 +53,8 @@ def evaluate_multiple_choice(
 
     steering = steering_vector if scale != 0 else None
 
-    batch_size = int(os.environ.get("GEN_BATCH_SIZE", generation_cfg.get("batch_size", 1)) or 1)
     with steering_hook(model, layer_index, steering, scale=scale):
-        if batch_size > 1:
-            results = _generate_batched(model, tokenizer, items, generation_cfg, primary_device,
-                                        scale, batch_size, preset)
-        for item in (items if batch_size <= 1 else []):
+        for item in items:
             question = item["question"]
             mc = item.get("mc1_targets")
             if not mc:
