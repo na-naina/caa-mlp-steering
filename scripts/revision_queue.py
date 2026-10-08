@@ -126,8 +126,9 @@ def mc_jobs(seed: int, fold: int):
 
 
 # ---------------------------------------------------------------------------
-# 8 Oct overnight blocks (single 96 GB card): every job is "train && generate",
-# so one queue with several slots keeps the card busy without phase ordering.
+# 8 Oct overnight blocks (single 96 GB card). Each job yields (name, train, generate);
+# write_block emits <prefix>_train.txt (7B training peaks ~40 GB -> 2 slots) and
+# <prefix>_gen.txt (~13 GB per generation job -> 5 slots).
 # ---------------------------------------------------------------------------
 PY5 = ".venv-tf5/bin/python"   # transformers 5.x env for Gemma-4 / Qwen3.5
 # Paper recipe on one card: batch 8, no accumulation, 2 x 50 steps (the tf5 configs
@@ -142,8 +143,8 @@ NEW_MODELS = {
 CELLS = [(s, f) for s in (42, 123, 456) for f in (1, 2)]
 
 
-def both(e: Exp, py: str = PY) -> str:
-    return f"{e.train_cmd().replace(PY, py, 1)} && {e.gen_cmd().replace(PY, py, 1)}"
+def both(e: Exp, py: str = PY):
+    return e.train_cmd().replace(PY, py, 1), e.gen_cmd().replace(PY, py, 1)
 
 
 def block_p0():
@@ -152,11 +153,11 @@ def block_p0():
         for lr, dec in (("1e-4", "0.0001"), ("2e-4", "0.0002"), ("3e-4", "0.0003")):
             e = Exp(f"mast_lr{lr}_{tag}", 0, "run", f"data/outputs/rcv_mast_lr{lr}_s{s}/fold{f}",
                     f"--model {LLAMA} {MAST_ONLY} --set mlp.mc_training.lr={dec}", split=spl, seed=s)
-            yield e.name, both(e)
+            yield (e.name, *both(e))
     for s in (123, 456):
         for f in (1, 2):
             for lr in ("5e-4", "2e-3"):
-                yield (f"bipo_lr{lr}_s{s}f{f}",
+                yield (f"bipo_lr{lr}_s{s}f{f}", "",
                        f"{PY} scripts/train_direct_vector.py --generate-only --loss bipo --seed {s} "
                        f"--output-dir data/outputs/rcv_bipo_lr{lr}_s{s}/fold{f}")
 
@@ -166,7 +167,7 @@ def block_sweep(key: str, layers: list[int]):
     for L in layers:
         yield (f"{key}_sweep_L{L}",
                f"{py} run.py --stage train-only --seed 42 --splits-file data/splits/cv2_s42_fold1.json "
-               f"--output-dir data/outputs/r{key}_sweep/L{L} --model {cfg}{L} {MAST_ONLY} {FULL_BATCH}")
+               f"--output-dir data/outputs/r{key}_sweep/L{L} --model {cfg}{L} {MAST_ONLY} {FULL_BATCH}", "")
 
 
 def block_new_model(key: str, layer: int, seeds=(42, 123, 456), pred_lr: str | None = None):
@@ -189,7 +190,7 @@ def block_new_model(key: str, layer: int, seeds=(42, 123, 456), pred_lr: str | N
                 exps.append(Exp(f"{key}_dvpred_{tag}", 0, "dv", out(f"_dvzero_lr{pred_lr}"),
                                 f"--model {hf} --layer {layer} --init zero --lr {pred_lr}", **kw))
             for e in exps:
-                yield e.name, both(e, py)
+                yield (e.name, *both(e, py))
 
 
 def block_p3():
@@ -204,18 +205,21 @@ def block_p3():
             if not skip_main:
                 e = Exp(f"{key}_main_{tag}", 2, "run", f"data/outputs/rcv_{key}main_s{s}/fold{f}",
                         f"--model {cfg}{extra} {WITH_CAA} --set 'steering.caa_scales=[1.0, 2.0]'", **kw)
-                yield e.name, both(e)
+                yield (e.name, *both(e))
             e = Exp(f"{key}_dvscaled_{tag}", 2, "dv", f"data/outputs/rcv_{key}_dvscaled_lr8e-4_s{s}/fold{f}",
                     f"--model {hf} --layer {layer} --init zero --scale-by-caa --lr 8e-4", **kw)
-            yield e.name, both(e)
+            yield (e.name, *both(e))
 
 
 def write_block(name: str, jobs, path: str):
     jobs = list(jobs)
-    with open(path, "w") as fh:
-        for n, c in jobs:
-            fh.write(f"{n}\t{c}\n")
-    print(f"{name}: {len(jobs)} jobs -> {path}")
+    stem = path[:-4] if path.endswith(".txt") else path
+    for suffix, k in (("_train.txt", 1), ("_gen.txt", 2)):
+        with open(stem + suffix, "w") as fh:
+            for j in jobs:
+                if j[k]:
+                    fh.write(f"{j[0]}\t{j[k]}\n")
+    print(f"{name}: {len(jobs)} jobs -> {stem}_train.txt / {stem}_gen.txt")
 
 
 def main():
