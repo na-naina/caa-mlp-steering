@@ -130,7 +130,9 @@ def mc_jobs(seed: int, fold: int):
 # write_block emits <prefix>_train.txt (7B training peaks ~40 GB -> 2 slots) and
 # <prefix>_gen.txt (~13 GB per generation job -> 5 slots).
 # ---------------------------------------------------------------------------
-PY5 = ".venv-tf5/bin/python"   # transformers 5.x env for Gemma-4 / Qwen3.5
+# transformers 5.x env for Gemma-4 / Qwen3.5. hub>=1.0 rejects the bare "truthful_qa" id, so
+# datasets are read from the cache populated by the 4.57 env (HF_DATASETS_OFFLINE=1).
+PY5 = "HF_DATASETS_OFFLINE=1 .venv-tf5/bin/python"
 # Paper recipe on one card: batch 8, no accumulation, 2 x 50 steps (the tf5 configs
 # default to 4 x accum 2 for 32 GB cards)
 FULL_BATCH = ("--set mlp.mc_training.batch_size=8 --set mlp.mc_training.gradient_accumulation_steps=1 "
