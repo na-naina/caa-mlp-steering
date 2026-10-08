@@ -209,6 +209,12 @@ def block_p3():
             e = Exp(f"{key}_dvscaled_{tag}", 2, "dv", f"data/outputs/rcv_{key}_dvscaled_lr8e-4_s{s}/fold{f}",
                     f"--model {hf} --layer {layer} --init zero --scale-by-caa --lr 8e-4", **kw)
             yield (e.name, *both(e))
+            # Weight-space reference for the multi-model headline table (RaLFiT's LoRA-DPO setting;
+            # the Gemma-3 vision tower has no o_proj/down_proj, so plain names suffice)
+            e = Exp(f"{key}_loradpo_{tag}", 2, "lora", f"data/outputs/rcv_{key}_loradpo_s{s}/fold{f}",
+                    f"--model {hf} --include-pool --target-modules o_proj,down_proj --lora-r 8 --lr 1e-4 "
+                    f"--epochs 5 --batch-size 8", **kw)
+            yield (e.name, *both(e))
 
 
 
