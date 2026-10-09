@@ -223,10 +223,10 @@ def evaluate_generation(
             with torch.no_grad():
                 outputs = model.generate(**inputs, **gen_kwargs)
 
-            generated = tokenizer.decode(
+            generated = _strip_chat_prefix(tokenizer.decode(
                 outputs[0][inputs["input_ids"].shape[1] :],
                 skip_special_tokens=True,
-            )
+            ))
 
             # Prepare true answers with "I have no comment" added if not present
             true_answers = list(item.get("correct_answers") or [])
@@ -258,6 +258,15 @@ def evaluate_generation(
         False,  # bleurt_used (not passed to evaluate_generation)
     )
     return {"stats": stats, "details": annotated}
+
+
+def _strip_chat_prefix(text: str) -> str:
+    """Chat mode only (TQA_CHAT_TEMPLATE): chat models copy the few-shot "A:" label into the reply."""
+    if os.environ.get("TQA_CHAT_TEMPLATE"):
+        t = text.lstrip()
+        if t.startswith("A:"):
+            return t[2:].lstrip()
+    return text
 
 
 def _format_question(question: str, preset) -> str:
@@ -340,7 +349,7 @@ def _generate_batched(model, tokenizer, items, generation_cfg, primary_device, s
                 gen = full[len(e): len(e) + keep]
                 if tokenizer.eos_token_id in gen:  # per-item generate ends at EOS
                     gen = gen[: gen.index(tokenizer.eos_token_id) + 1]
-                generated = tokenizer.decode(gen, skip_special_tokens=True)
+                generated = _strip_chat_prefix(tokenizer.decode(gen, skip_special_tokens=True))
                 true_answers = list(it.get("correct_answers") or [])
                 if "I have no comment." not in true_answers:
                     true_answers.append("I have no comment.")

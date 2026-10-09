@@ -139,7 +139,9 @@ FULL_BATCH = ("--set mlp.mc_training.batch_size=8 --set mlp.mc_training.gradient
               "--set mlp.mc_training.steps_per_epoch=50")
 NEW_MODELS = {
     # key: (python, config prefix, HF id, LoRA targets)
-    "g4e": (PY5, "gemma4_e4b_bn8_L", "google/gemma-4-E4B-it", "'re:.*language_model.*\\.(o_proj|down_proj)'"),
+    # Gemma-4 degenerates under the raw six-shot prompt ("I have no comment." 42% unsteered, s42f1)
+    # -> chat-template prompts everywhere (4.2%). Qwen3.5 passes the raw prompt (5.6%) and keeps it.
+    "g4e": ("TQA_CHAT_TEMPLATE=google/gemma-4-E4B-it " + PY5, "gemma4_e4b_bn8_L", "google/gemma-4-E4B-it", "'re:.*language_model.*\\.(o_proj|down_proj)'"),
     "q35": (PY5, "qwen3_5_9b_bn8_L", "Qwen/Qwen3.5-9B", "o_proj,out_proj,down_proj"),
 }
 CELLS = [(s, f) for s in (42, 123, 456) for f in (1, 2)]
