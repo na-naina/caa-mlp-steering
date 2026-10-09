@@ -29,10 +29,10 @@ from statistics import mean, stdev
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "data/outputs"
 MAIN = {"llama": "rcv_main", "g4b": "rcv_g4bmain", "q4b": "rcv_q4bmain", "g4e": "rcv_g4emain",
-        "q35": "rcv_q35main", "olmo": "rcv_olmomain"}
-ALT = {"llama": 10, "g4b": 9, "q4b": 9, "g4e": 10, "q35": 11, "olmo": None}  # runner-up layers; override --alt
+        "q35": "rcv_q35main", "olmo": "rcv_olmomain", "granite": "rcv_granitemain"}
+ALT = {"llama": 10, "g4b": 9, "q4b": 9, "g4e": 10, "q35": 11, "olmo": None, "granite": None}  # runner-up layers; override --alt
 LABEL = {"llama": "LLaMA-2-7B-Chat", "g4b": "Gemma-3-4B-IT", "q4b": "Qwen3-4B", "g4e": "Gemma-4-E4B-IT",
-         "q35": "Qwen3.5-9B", "olmo": "OLMo-3-7B-Instruct"}
+         "q35": "Qwen3.5-9B", "olmo": "OLMo-3-7B-Instruct", "granite": "Granite-4.1-8B"}
 CELLS = [(s, f) for s in (42, 123) for f in (1, 2)]
 
 
