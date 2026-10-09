@@ -6,6 +6,7 @@ Also prints ||base_vector|| at the chosen layer and the bare-vector lr predicted
 activation-scale rule lr ~= 2e-3 * ||v_CAA|| / 2.5 (LLaMA-2: ||v_CAA|| ~= 2.5, best lr 2e-3).
 
     python scripts/pick_layer.py data/outputs/rg4e_sweep   # -> "<layer> <norm> <pred_lr>"
+    python scripts/pick_layer.py data/outputs/rg4e_sweep --rank 2   # runner-up layer (plug-and-play grid)
 """
 import json
 import sys
@@ -25,7 +26,8 @@ for d in sorted(Path(sys.argv[1]).glob("L*")):
     rows.append((sum(acc) / len(acc), -sum(loss) / len(loss), int(d.name[1:]), d))
 for a, l, L, _ in sorted(rows, reverse=True):
     print(f"# L{L}: acc {a:.3f} loss {-l:.3f}", file=sys.stderr)
-a, l, L, d = max(rows)
+rank = int(sys.argv[sys.argv.index("--rank") + 1]) if "--rank" in sys.argv else 1
+a, l, L, d = sorted(rows, reverse=True)[rank - 1]
 v = torch.load(d / "vectors" / "base_vector.pt", map_location="cpu")
 v = v if torch.is_tensor(v) else next(iter(v.values()))
 n = float(v.float().norm())

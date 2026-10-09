@@ -1,0 +1,30 @@
+# OLMo-3-7B-Instruct (Ai2, Nov 2025; Apache-2.0, ungated, fully open weights + data). Olmo3ForCausalLM:
+# dense decoder, 32 layers, d=4096, MHA (32/32 heads); 3 sliding-window (4096) layers per full-attention
+# layer, which is irrelevant for our <1k-token prompts. Runs on the pinned transformers 4.57.3 (.venv).
+# 100k vocab. LoRA-DPO analogue of RaLFiT: --target-modules o_proj,down_proj
+# Paper recipe (bn=8, no bank, lr 5e-4). Layer-sweep candidate L8/32 (25% depth);
+# pick the layer by final train loss / margin acc only (train-signal protocol).
+model:
+  name: allenai/Olmo-3-7B-Instruct
+  layer: 8
+  family: olmo3
+  dtype: bfloat16
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    gradient_checkpointing: true
+    lr: 5.0e-4
+    batch_size: 1
+    gradient_accumulation_steps: 8
+    steps_per_epoch: 400
+  gen_training:
+    lr: 5.0e-4
+    batch_size: 1
+    gradient_accumulation_steps: 8
+
+steering:
+  vector_bank:
+    num_vectors: 0
+  enabled_variants: [baseline, steered, mlp_mc]

@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import re
 from dataclasses import dataclass
 
 PY = ".venv/bin/python"
@@ -258,6 +259,86 @@ def block_p3x(g4e_layer: int | None = None):
            "--out-dir data/outputs/rx_caavar_q4b", "")
 
 
+# ---------------------------------------------------------------------------
+# 9 Oct round: "is the recipe plug-and-play?" sensitivity grid, OLMo-3 as a sixth model, SimpleQA Verified.
+# ---------------------------------------------------------------------------
+NEW_MODELS["olmo"] = (PY, "olmo3_7b_bn8_L", "allenai/Olmo-3-7B-Instruct", "o_proj,down_proj")
+CHAT_G4E = "TQA_CHAT_TEMPLATE=google/gemma-4-E4B-it " + PY5
+# key: (python, MAST args at the picked layer exactly as in that model's main runs, HF id, picked layer,
+#       runner-up layer by train signal (scripts/pick_layer.py --rank 2), main-run dir prefix)
+PP_MODELS = {
+    "llama": (PY, f"--model {LLAMA} --set model.layer=8", "meta-llama/Llama-2-7b-chat-hf", 8, None, "rcv_main"),
+    "g4b": (PY, "--model gemma3_4b_bn8_L13", "google/gemma-3-4b-it", 13, 9, "rcv_g4bmain"),
+    "q4b": (PY, "--model qwen3_4b_bn8 --set model.layer=14", "Qwen/Qwen3-4B", 14, 9, "rcv_q4bmain"),
+    "g4e": (CHAT_G4E, f"--model gemma4_e4b_bn8_L17 {FULL_BATCH}", "google/gemma-4-E4B-it", 17, 10, "rcv_g4emain"),
+    "q35": (PY5, f"--model qwen3_5_9b_bn8_L13 {FULL_BATCH}", "Qwen/Qwen3.5-9B", 13, 11, "rcv_q35main"),
+    "olmo": (PY, f"--model olmo3_7b_bn8_L{{L}} {FULL_BATCH}", "allenai/Olmo-3-7B-Instruct", None, None, "rcv_olmomain"),
+}
+PP_CELLS = [(s, f) for s in (42, 123) for f in (1, 2)]
+
+
+def block_ppsweep():
+    """Train-only layer sweeps the grid needs first: LLaMA runner-up layer (no bn=8 cv2 sweep exists) and
+    OLMo-3 layer choice. Then: pick_layer.py data/outputs/rllama_sweep --rank 2 / rolmo_sweep."""
+    for L in (6, 10, 12):
+        yield (f"llama_sweep_L{L}",
+               f"{PY} run.py --stage train-only --seed 42 --splits-file data/splits/cv2_s42_fold1.json "
+               f"--output-dir data/outputs/rllama_sweep/L{L} --model {LLAMA} --set model.layer={L} {MAST_ONLY}", "")
+    yield from block_sweep("olmo", [8, 11, 13, 16])
+
+
+def block_plugplay(key: str, layer: int | None = None, alt_layer: int | None = None):
+    """MAST at 0.5x / 2x its default lr, at the runner-up layer, and applied at alpha 0.5 / 1.5,
+    seeds 42 and 123 x both folds. The default point (lr 5e-4, picked layer, alpha 1) is the model's main run."""
+    py, margs, hf, L0, L1, main = PP_MODELS[key]
+    layer = layer if layer is not None else L0
+    alt_layer = alt_layer if alt_layer is not None else L1
+    if layer is None or alt_layer is None:
+        raise SystemExit(f"{key}: pass --layers <picked> <runner-up> (from scripts/pick_layer.py)")
+    margs = margs.replace("{L}", str(layer))
+    for s, f in PP_CELLS:
+        spl, tag = f"data/splits/cv2_s{s}_fold{f}.json", f"s{s}f{f}"
+        kw = dict(split=spl, seed=s)
+        lrs = [("2.5e-4", "0.00025")] + ([] if key == "llama" else [("1e-3", "0.001")])  # LLaMA 1e-3: rcv_mast_lr1e-3
+        for lr, dec in lrs:
+            e = Exp(f"pp_{key}_lr{lr}_{tag}", 1, "run", f"data/outputs/rpp_{key}_mast_lr{lr}_s{s}/fold{f}",
+                    f"{margs} {MAST_ONLY} --set mlp.mc_training.lr={dec}", **kw)
+            yield (e.name, *both(e, py))
+        if f"--set model.layer={layer}" in margs:  # LLaMA / Qwen3-4B: one config, layer overridden
+            alt = margs.replace(f"--set model.layer={layer}", f"--set model.layer={alt_layer}")
+        else:  # per-layer config files (<prefix>_L<k>.yaml)
+            alt = re.sub(rf"_L{layer}\b", f"_L{alt_layer}", margs)
+        e = Exp(f"pp_{key}_L{alt_layer}_{tag}", 1, "run", f"data/outputs/rpp_{key}_mast_L{alt_layer}_s{s}/fold{f}",
+                f"{alt} {MAST_ONLY}", **kw)
+        yield (e.name, *both(e, py))
+        # alpha: generation only, with the main run's applied vector (export it first if the run predates it)
+        run = f"data/outputs/{main}_s{s}/fold{f}"
+        for a in ("0.5", "1.5"):
+            yield (f"pp_{key}_a{a}_{tag}", "",
+                   f"{PY} scripts/export_mast_vector.py {run} && "
+                   f"{py} scripts/steer_explore.py --model {hf} --layer {layer} --seed {s} --splits-file {spl} "
+                   f"--add {run}/vectors/v_mlp_mc.pt:{a} --out data/outputs/rpp_{key}_alpha{a}_s{s}f{f}")
+
+
+SQV = {  # SimpleQA Verified: seed-42 vectors of the main table (Gemma-3: fold 2, whose cell exported v_mlp_mc)
+    "llama": (PY, "meta-llama/Llama-2-7b-chat-hf", 8, "rcv_main_s42/fold1", "rcv_dvzero_lr2e-3_s42/fold1",
+              "rcv_loradpo_s42/fold1"),
+    "g4b": (PY, "google/gemma-3-4b-it", 13, "rcv_g4bmain_s42/fold2", "rcv_g4b_dvscaled_lr8e-4_s42/fold2",
+            "rcv_g4b_loradpo_s42/fold2"),
+    "q35": (PY5, "Qwen/Qwen3.5-9B", 13, "rcv_q35main_s42/fold1", "rcv_q35_dvscaled_lr8e-4_s42/fold1",
+            "rcv_q35_loradpo_s42/fold1"),
+}
+
+
+def block_simpleqa(keys=("llama", "g4b", "q35")):
+    d = "data/outputs/"
+    for k in keys:
+        py, hf, L, mast, dv, lora = SQV[k]
+        yield (f"sqv_{k}", "",
+               f"{py} scripts/eval_simpleqa.py --model {hf} --layer {L} --mast-dir {d}{mast} --dv-dir {d}{dv} "
+               f"--lora-dir {d}{lora} --out {d}sqv_{k}_s42")
+
+
 def write_block(name: str, jobs, path: str):
     jobs = list(jobs)
     stem = path[:-4] if path.endswith(".txt") else path
@@ -274,10 +355,12 @@ def main():
     p.add_argument("--seeds", type=int, nargs="+", default=[42, 123, 456])
     p.add_argument("--max-priority", type=int, default=2)
     p.add_argument("--out-prefix", default="jobs")
-    p.add_argument("--block", choices=["p0", "sweep", "new", "p3", "p3x"],
+    p.add_argument("--block", choices=["p0", "sweep", "new", "p3", "p3x", "ppsweep", "plugplay", "simpleqa"],
                    help="emit one 8-Oct overnight block (combined train+generate jobs)")
-    p.add_argument("--key", choices=list(NEW_MODELS), help="new-model key for --block sweep/new")
-    p.add_argument("--layers", type=int, nargs="+", help="sweep layers, or the chosen layer for --block new")
+    p.add_argument("--key", choices=sorted(set(NEW_MODELS) | set(PP_MODELS)),
+                   help="model key for --block sweep/new/plugplay")
+    p.add_argument("--layers", type=int, nargs="+", help="sweep layers; the chosen layer for --block new; "
+                   "'<picked> <runner-up>' for --block plugplay")
     p.add_argument("--pred-lr", help="bare-vector lr predicted by the activation-norm rule (seed 42 fold 1)")
     p.add_argument("--block-seeds", type=int, nargs="+", default=[42, 123, 456])
     args = p.parse_args()
@@ -286,7 +369,10 @@ def main():
                 "sweep": lambda: block_sweep(args.key, args.layers),
                 "new": lambda: block_new_model(args.key, args.layers[0], tuple(args.block_seeds), args.pred_lr),
                 "p3": lambda: block_p3(),
-                "p3x": lambda: block_p3x(args.layers[0] if args.layers else None)}[args.block]()
+                "p3x": lambda: block_p3x(args.layers[0] if args.layers else None),
+                "ppsweep": lambda: block_ppsweep(),
+                "plugplay": lambda: block_plugplay(args.key, *(args.layers or [])),
+                "simpleqa": lambda: block_simpleqa()}[args.block]()
         write_block(args.block, jobs, f"{args.out_prefix}.txt")
         return
 
