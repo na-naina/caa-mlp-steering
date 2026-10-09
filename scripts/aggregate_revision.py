@@ -52,6 +52,7 @@ LABELS = {
     "dvcaa_lr5e-4": "Direct vector, CAA init (lr 5e-4)",
     "dvcaa_lr2e-3": "Direct vector, CAA init (lr 2e-3)",
     "loradpo": "LoRA-DPO (W_O+W_down, r=8)",
+    "ralfit": "RaLFiT (our reimplementation)",
     "mast_lr1e-4": "MAST (lr 1e-4)",
     "mast_lr2e-4": "MAST (lr 2e-4)",
     "mast_lr3e-4": "MAST (lr 3e-4)",
