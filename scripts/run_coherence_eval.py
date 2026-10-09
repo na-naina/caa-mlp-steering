@@ -80,6 +80,8 @@ def main():
     parser.add_argument("--layer", type=int, default=8)
     parser.add_argument("--bottleneck-dim", type=int, default=16)
     parser.add_argument("--scale", type=float, default=1.0)
+    parser.add_argument("--vector-file", type=Path, default=None,
+                        help="steer with this saved vector instead of the MLP output (direct-vector baseline)")
     parser.add_argument("--tasks", nargs="+", default=["arc_easy", "arc_challenge", "hellaswag"])
     parser.add_argument("--mmlu", action="store_true", help="Include MMLU")
     parser.add_argument("--limit", type=int, default=None,
@@ -142,14 +144,17 @@ def main():
     param_dtype = next(hf_model.parameters()).dtype
     device = next(hf_model.parameters()).device
 
-    mlp = SteeringMLP(input_dim=base_vector.shape[0], bottleneck_dim=args.bottleneck_dim)
-    mlp.load_state_dict(
-        torch.load(args.vectors_dir / "mlp_mc_state_dict.pt", map_location="cpu")
-    )
-    mlp.eval().to(device, dtype=param_dtype)
+    if args.vector_file:  # a bare (directly optimised) steering vector, no MLP
+        transformed = torch.load(args.vector_file, map_location="cpu").flatten().to(device, dtype=param_dtype)
+    else:
+        mlp = SteeringMLP(input_dim=base_vector.shape[0], bottleneck_dim=args.bottleneck_dim)
+        mlp.load_state_dict(
+            torch.load(args.vectors_dir / "mlp_mc_state_dict.pt", map_location="cpu")
+        )
+        mlp.eval().to(device, dtype=param_dtype)
 
-    with torch.no_grad():
-        transformed = mlp(base_vector.to(device, dtype=param_dtype).unsqueeze(0)).squeeze(0)
+        with torch.no_grad():
+            transformed = mlp(base_vector.to(device, dtype=param_dtype).unsqueeze(0)).squeeze(0)
 
     # Apply steering hook
     layer = _get_decoder_layer(hf_model, args.layer)
