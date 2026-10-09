@@ -47,6 +47,7 @@ from src.steering.apply import steering_hook
 from src.evaluation.truthfulqa import evaluate_generation
 from src.utils.batching import build_prompt_answer_batch
 from src.utils.scoring import compute_answer_logprobs
+from src.prompts.chat import qa_prompt, qa_text  # legacy strings unless TQA_CHAT_TEMPLATE is set
 
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 LOG = logging.getLogger(__name__)
@@ -180,7 +181,7 @@ def main():
                 pair = _select_mc_answers(dataset, item)
                 if pair is None:
                     continue
-                prompts.append(f"Question: {item['question']}\nAnswer:")
+                prompts.append(qa_prompt(item['question']))
                 ans_c.append(pair[0])
                 ans_i.append(pair[1])
             if not prompts:

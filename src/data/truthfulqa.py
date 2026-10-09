@@ -7,6 +7,7 @@ from typing import Iterable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 from datasets import Dataset, load_dataset
+from src.prompts.chat import qa_prompt, qa_text  # legacy strings unless TQA_CHAT_TEMPLATE is set
 
 logger = logging.getLogger(__name__)
 
@@ -155,8 +156,8 @@ class TruthfulQADatasetManager:
             if negative_answer is None:
                 continue
 
-            positive.append(f"Question: {question}\nAnswer: {best_answer}")
-            negative.append(f"Question: {question}\nAnswer: {negative_answer}")
+            positive.append(qa_text(question, best_answer))
+            negative.append(qa_text(question, negative_answer))
             valid_indices.append(idx)
 
         if not positive:

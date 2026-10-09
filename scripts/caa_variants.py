@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.data.truthfulqa import TruthfulQADatasetManager  # noqa: E402
 from src.models.loader import load_causal_model  # noqa: E402
 from src.steering.apply import _get_decoder_layer  # noqa: E402
+from src.prompts.chat import qa_prompt, qa_text  # legacy strings unless TQA_CHAT_TEMPLATE is set
 
 MASSIVE = [1415, 2533]
 
@@ -81,7 +82,7 @@ def main():
         bad = item.get("incorrect_answers") or []
         if not bad:
             continue
-        prompts.append(f"Question: {item['question'].strip()}\nAnswer:")
+        prompts.append(qa_prompt(item['question'].strip()))
         pos.append(" " + (item.get("best_answer") or item["correct_answers"][0]))
         neg.append(" " + bad[0])
 

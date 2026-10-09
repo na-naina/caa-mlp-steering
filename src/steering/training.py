@@ -14,6 +14,7 @@ from src.steering.vector_bank import VectorBank
 from src.steering.apply import steering_hook
 from src.utils.batching import build_prompt_answer_batch
 from src.utils.scoring import compute_answer_logprobs
+from src.prompts.chat import qa_prompt, qa_text  # legacy strings unless TQA_CHAT_TEMPLATE is set
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ def train_mc_mlp(
                     continue
                 correct_answer, incorrect_answer = qa_pair
                 question = item["question"]
-                prompt = f"Question: {question}\nAnswer:"
+                prompt = qa_prompt(question)
                 prompts.append(prompt)
                 answers_correct.append(correct_answer)
                 answers_incorrect.append(incorrect_answer)
@@ -338,7 +339,7 @@ def train_gen_mlp(
                 best_answer = item.get("best_answer") or (correct_answers[0] if correct_answers else None)
                 if not best_answer:
                     continue
-                prompt = f"Question: {question}\nAnswer:"
+                prompt = qa_prompt(question)
                 prompts.append(prompt)
                 answers.append(best_answer)
 

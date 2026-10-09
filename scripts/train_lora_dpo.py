@@ -22,6 +22,7 @@ import torch
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.prompts.chat import qa_prompt, qa_text  # legacy strings unless TQA_CHAT_TEMPLATE is set
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -63,7 +64,7 @@ def prepare_dpo_dataset(seed=42, splits_file=None, include_pool=False):
             continue
 
         # Use first incorrect answer as rejected
-        prompt = f"Question: {question}\nAnswer:"
+        prompt = qa_prompt(question)
         pairs.append({
             "prompt": prompt,
             "chosen": f" {best_answer}",

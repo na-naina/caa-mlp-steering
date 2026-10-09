@@ -107,4 +107,5 @@ def format_prompt(question: str, preset: str = 'qa') -> str:
         return PRESET_MAP[preset] + question
 
     # For 'qa' and 'help': append question to the few-shot examples
-    return f"{PRESET_MAP[preset]}\n\nQ: {question}\nA:"
+    from src.prompts.chat import generation_prompt  # no-op unless TQA_CHAT_TEMPLATE is set
+    return generation_prompt(f"{PRESET_MAP[preset]}\n\nQ: {question}\nA:")
