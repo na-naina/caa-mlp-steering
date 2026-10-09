@@ -36,12 +36,16 @@ KEYS = {
     "dvzero": "dvzero_lr2e-3", "dvzerolow": "dvzero_lr5e-4", "dvzeroA": "dvzero_lr1e-3",
     "dvzerohigh": "dvzero_lr5e-3", "dvcaa": "dvcaa_lr5e-4", "dvcaahigh": "dvcaa_lr2e-3",
     "loradpo": "loradpo", "mastlrA": "mast_lr1e-3", "mastlrB": "mast_lr2e-3",
+    "mastlrlowA": "mast_lr1e-4", "mastlrlowB": "mast_lr2e-4", "mastlrlowC": "mast_lr3e-4",
+    "bipolow": "bipo_lr5e-4", "bipo": "bipo_lr2e-3",
 }
 COMPARE = {  # macro key -> (a, b)
     "mastVcaa2": ("mast", "caa_a2"), "mastVlora": ("mast", "loradpo"),
     "mastVdvzero": ("mast", "dvzero_lr2e-3"), "mastVdvzlow": ("mast", "dvzero_lr5e-4"),
     "mastlrAVdvzA": ("mast_lr1e-3", "dvzero_lr1e-3"), "mastlrBVdvz": ("mast_lr2e-3", "dvzero_lr2e-3"),
     "mastVdvcaa": ("mast", "dvcaa_lr5e-4"),
+    "dvzeroVbipo": ("dvzero_lr2e-3", "bipo_lr2e-3"), "dvzlowVbipolow": ("dvzero_lr5e-4", "bipo_lr5e-4"),
+    "loraVdvzero": ("loradpo", "dvzero_lr2e-3"),
 }
 PM = r"$\pm$"
 
@@ -88,8 +92,9 @@ def main_table(num: Numbers, judge: str):
         if not r or "ti_product" not in r:
             continue
         if judge == "gpt":
+            one = r["n_seeds_full"] < 2
             for metric, k in (("truth", "truth"), ("info", "info"), ("tiprod", "ti_product"), ("ticonj", "ti_conj")):
-                num.set(key, metric, pm(r[k]["mean"], r[k]["sd"]))
+                num.set(key, metric, f"{r[k]['mean']:.1f}" if one else pm(r[k]["mean"], r[k]["sd"]))
             num.set(key, "sdtiprod", f"{r['ti_product']['sd']:.1f}")
             num.set(key, "nseeds", str(r["n_seeds_full"]))
             if "baseline" in table and "ti_product" in table["baseline"]:
@@ -199,13 +204,29 @@ def gemma(num: Numbers, paper_dir: Path):
         num.set("gemmaMastSeeds", "tiprod", pm(*seeds["ti_product"]))
     dv = {}
     for init, lr, key in (("zero", "5e-4", "gemmaDvLow"), ("zero", "2e-3", "gemmaDvMid"),
-                          ("zero", "5e-3", "gemmaDvHigh"), ("caa", "5e-4", "gemmaDvCaa")):
-        it = load_judged(OUT / f"rg4b_dv{init}_lr{lr}_s42/fold1/mlp_mc/scale_1.00/{jf}")
+                          ("zero", "5e-3", "gemmaDvHigh"), ("zero", "3e-2", "gemmaDvA"),
+                          ("zero", "1e-1", "gemmaDvB"), ("zero", "3e-1", "gemmaDvC"),
+                          ("scaled", "8e-4", "gemmaDvScaled"), ("caa", "5e-4", "gemmaDvCaa")):
+        d = OUT / f"rg4b_dv{init}_lr{lr}_s42/fold1"
+        it = load_judged(d / f"mlp_mc/scale_1.00/{jf}")
         if it:
             r = agg.rates(it)
             dv[key] = (init, lr, r)
             num.set(key, "tiprod", f"{r['ti_product']:.1f}")
             num.set(key, "info", f"{r['info']:.1f}")
+        if (d / "meta.json").exists():
+            meta = json.loads((d / "meta.json").read_text())
+            num.set(key, "norm", f"{meta['v_final_norm']:.1f}")
+            num.set("gemma", "caanorm", f"{meta['v_caa_norm']:.0f}")
+    # same cell on LLaMA (seed 42, fold 1): bare vector, scaled vector, MAST
+    for key, d in (("llamaDvScaled", "rcv_dvscaled_lr8e-4_s42/fold1"), ("llamaDvfA", "rcv_dvzero_lr2e-3_s42/fold1")):
+        it = load_judged(OUT / d / f"mlp_mc/scale_1.00/{jf}")
+        if it:
+            num.set(key, "tiprod", f"{agg.rates(it)['ti_product']:.1f}")
+        if (OUT / d / "meta.json").exists():
+            meta = json.loads((OUT / d / "meta.json").read_text())
+            num.set(key, "norm", f"{meta['v_final_norm']:.2f}")
+            num.set("llama", "caanorm", f"{meta['v_caa_norm']:.1f}")
     lines = [r"\begin{table}[h]\centering\small\setlength{\tabcolsep}{3pt}",
              r"\begin{tabular}{lccc}\toprule", r"Gemma-3-4B-IT, layer 13 & Truth & Info & T$\times$I \\ \midrule"]
     names = {"gemmaBase": "Unsteered", "gemmaCaa": r"Raw CAA ($\alpha{=}1$)", "gemmaMast": r"\textsc{MAST} (lr $5{\times}10^{-4}$)"}
@@ -222,7 +243,8 @@ def gemma(num: Numbers, paper_dir: Path):
 
 def lr_outputs(table, runs, paper_dir: Path):
     curves = {
-        r"\textsc{MAST}": {"5e-4": "mast", "1e-3": "mast_lr1e-3", "2e-3": "mast_lr2e-3"},
+        r"\textsc{MAST}": {"1e-4": "mast_lr1e-4", "2e-4": "mast_lr2e-4", "3e-4": "mast_lr3e-4",
+                           "5e-4": "mast", "1e-3": "mast_lr1e-3", "2e-3": "mast_lr2e-3"},
         "Direct vector, zero init": {"5e-4": "dvzero_lr5e-4", "1e-3": "dvzero_lr1e-3",
                                      "2e-3": "dvzero_lr2e-3", "5e-3": "dvzero_lr5e-3"},
         "Direct vector, CAA init": {"5e-4": "dvcaa_lr5e-4", "2e-3": "dvcaa_lr2e-3"},
@@ -263,7 +285,7 @@ def lr_outputs(table, runs, paper_dir: Path):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    lrs = {"5e-4": 5e-4, "1e-3": 1e-3, "2e-3": 2e-3, "5e-3": 5e-3}
+    lrs = {"1e-4": 1e-4, "2e-4": 2e-4, "3e-4": 3e-4, "5e-4": 5e-4, "1e-3": 1e-3, "2e-3": 2e-3, "5e-3": 5e-3}
     style = {r"\textsc{MAST}": ("#1f5fa8", "o"), "Direct vector, zero init": ("#c0392b", "s"),
              "Direct vector, CAA init": ("#e08a2c", "^")}
     fig, axes = plt.subplots(2, 1, figsize=(3.4, 3.6), sharex=True, gridspec_kw={"height_ratios": [1.6, 1]})
@@ -283,12 +305,14 @@ def lr_outputs(table, runs, paper_dir: Path):
     caas = [table[m]["ti_product"]["mean"] for m in ("caa_a1", "caa_a2") if m in table and "ti_product" in table[m]]
     if caas:
         axes[0].axhline(max(caas), color="grey", ls=":", lw=1)
-        axes[0].text(5.2e-4, max(caas) + 0.6, "raw CAA (better of α=1, 2)", fontsize=6.5, color="grey")
+        axes[0].text(min(lrs[k] for pts in curves.values() for k in pts if pts[k] in table) * 1.05, max(caas) + 0.6, "raw CAA (better of α=1, 2)", fontsize=6.5, color="grey")
     axes[0].set_ylabel("True×Info (%)", fontsize=8)
     axes[1].set_ylabel("Info (%)", fontsize=8)
     axes[1].set_xscale("log")
-    axes[1].set_xticks(list(lrs.values()))
-    axes[1].set_xticklabels(list(lrs.keys()), fontsize=7)
+    shown = [k for k in lrs if any(k in pts and pts[k] in table for pts in curves.values())]
+    axes[1].set_xticks([lrs[k] for k in shown])
+    axes[1].set_xticklabels(shown, fontsize=6.5)
+    axes[1].minorticks_off()
     axes[1].set_xlabel("learning rate", fontsize=8)
     for ax in axes:
         ax.tick_params(labelsize=7)
@@ -347,10 +371,12 @@ def crossfold_selection(num: Numbers, runs):
     """
     families = {
         "selDvzero": ["dvzero_lr5e-4", "dvzero_lr1e-3", "dvzero_lr2e-3", "dvzero_lr5e-3"],
-        "selMast": ["mast", "mast_lr1e-3", "mast_lr2e-3"],
+        "selMast": ["mast_lr1e-4", "mast_lr2e-4", "mast_lr3e-4", "mast", "mast_lr1e-3", "mast_lr2e-3"],
     }
     out = {}
     for key, members in families.items():
+        members = [m for m in members
+                   if all(f in runs.get(m, {}).get(sd, {}) for sd in (42, 123, 456) for f in (1, 2))]
         vals, picks = [], []
         for seed in (42, 123, 456):
             cells = {m: runs.get(m, {}).get(seed, {}) for m in members}
@@ -369,6 +395,438 @@ def crossfold_selection(num: Numbers, runs):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Multi-model study (8 Oct): five instruction-tuned models, one method matrix
+# ---------------------------------------------------------------------------
+CELLS6 = [(s, f) for s in (42, 123, 456) for f in (1, 2)]
+
+
+def _main_dir(model, s, f):
+    """Directory holding baseline/steered/mlp_mc for one cell (legacy names first)."""
+    legacy = {("gemma3", 42, 1): "g4b_bn8_full", ("qwen3", 42, 1): "rq4b_main_L14/fold1"}
+    prefix = {"gemma3": "g4b", "qwen3": "q4b", "gemma4": "g4e", "qwen35": "q35"}[model]
+    if (model, s, f) in legacy:
+        return OUT / legacy[(model, s, f)]
+    return OUT / f"rcv_{prefix}main_s{s}" / f"fold{f}"
+
+
+def _dv_dir(model, s, f, kind="dvscaled_lr8e-4"):
+    if model == "llama":
+        return OUT / f"rcv_dvzero_lr2e-3_s{s}" / f"fold{f}"
+    prefix = {"gemma3": "g4b", "qwen3": "q4b", "gemma4": "g4e", "qwen35": "q35"}[model]
+    if model == "gemma3" and (s, f) == (42, 1) and kind == "dvscaled_lr8e-4":
+        return OUT / "rg4b_dvscaled_lr8e-4_s42" / "fold1"
+    return OUT / f"rcv_{prefix}_{kind}_s{s}" / f"fold{f}"
+
+
+def _lora_dir(model, s, f):
+    if model == "llama":
+        return OUT / f"rcv_loradpo_s{s}" / f"fold{f}"
+    prefix = {"gemma3": "g4b", "qwen3": "q4b", "gemma4": "g4e", "qwen35": "q35"}[model]
+    return OUT / f"rcv_{prefix}_loradpo_s{s}" / f"fold{f}"
+
+
+# Models whose current judged outputs are not valid for the table (Gemma-4 under the shared plain few-shot prompt
+# answers "I have no comment" to ~44% of questions; rerun with its chat template pending). Geometry still uses them.
+MM_EXCLUDE = set()  # filled in multimodel(): a Gemma-4 table whose unsteered no-comment rate exceeds 20% is the raw-prompt run
+MM_LAYERS = {"llama": 8, "gemma3": 13, "qwen3": 14, "gemma4": 17, "qwen35": 13}  # fill from the layer sweeps
+MM_MODELS = [  # key, label
+    ("llama", "LLaMA-2-7B-Chat"), ("gemma3", "Gemma-3-4B-IT"), ("qwen3", "Qwen3-4B"),
+    ("gemma4", "Gemma-4-E4B-IT"), ("qwen35", "Qwen3.5-9B"),
+]
+
+
+def _method_files(model, method, s, f, jf):
+    if model == "llama":
+        main = OUT / f"rcv_main_s{s}" / f"fold{f}"
+    else:
+        main = _main_dir(model, s, f)
+    return {
+        "base": [main / "baseline/scale_0.00" / jf],
+        "caa1": [main / "steered/scale_1.00" / jf],
+        "caa2": [main / "steered/scale_2.00" / jf],
+        "mast": [main / "mlp_mc/scale_1.00" / jf],
+        "dvs": [_dv_dir(model, s, f) / "mlp_mc/scale_1.00" / jf],
+        "lora": [_lora_dir(model, s, f) / "mlp_mc/scale_1.00" / jf],
+    }[method]
+
+
+def _cell_rates(model, method, jf):
+    """-> {(s, f): items} for every cell that has a judged file."""
+    out = {}
+    for s, f in CELLS6:
+        for path in _method_files(model, method, s, f, jf):
+            it = load_judged(path)
+            if it:
+                out[(s, f)] = it
+                break
+    return out
+
+
+def _summ(cells):
+    """Mean +- s.d. over seeds with both folds; otherwise pool what exists."""
+    if not cells:
+        return None
+    seeds = sorted({s for s, _ in cells})
+    full = [agg.rates(cells[(s, 1)] + cells[(s, 2)]) for s in seeds if (s, 1) in cells and (s, 2) in cells]
+    if len(full) >= 2:
+        r = {k: (float(np.mean([x[k] for x in full])), float(np.std([x[k] for x in full], ddof=1)))
+             for k in ("truth", "info", "ti_product", "ti_conj")}
+        r["text"] = lambda k: pm(*r[k])
+    else:
+        pooled = agg.rates([x for v in cells.values() for x in v])
+        r = {k: (pooled[k], None) for k in ("truth", "info", "ti_product", "ti_conj")}
+        r["text"] = lambda k: f"{r[k][0]:.1f}"
+    r["ncells"], r["nfull"] = len(cells), len(full)
+    return r
+
+
+def multimodel(num: Numbers, paper_dir: Path, jf="gpt_judge_results.json"):
+    names = {"base": "Unsteered", "caa": "Raw CAA (better $\\alpha$)", "dvs": "Supervised vector, direct$^{\\dagger}$",
+             "mast": "Supervised vector, \\textsc{MAST}", "lora": "LoRA-DPO (weights)"}
+    cols, summary = [], {}
+    rows = []
+    for s_, f in CELLS6:
+        r = _rows(_main_dir("gemma4", s_, f) / "baseline/scale_0.00" / jf)
+        rows += r or []
+    if rows and np.mean(["no comment" in (r.get("generated_clean") or "").lower() for r in rows]) > 0.2:
+        MM_EXCLUDE.add("gemma4")
+    for model, label in MM_MODELS:
+        raw = {m: ({} if model in MM_EXCLUDE else _cell_rates(model, m, jf))
+               for m in ("base", "caa1", "caa2", "mast", "dvs", "lora")}
+        # compare methods on the same questions: restrict to cells every available method has
+        # CAA rows (alpha 1/2) are chosen separately and may cover fewer cells; restrict the trained methods
+        # and the baseline to the cells they all have
+        avail = [raw[m] for m in ("base", "mast", "dvs", "lora") if raw[m]]
+        common = set.intersection(*(set(c) for c in avail)) if avail else set()
+        if common:
+            raw = {m: ({k: v for k, v in c.items() if k in common} if m in ("base", "mast", "dvs", "lora") else c)
+                   for m, c in raw.items()}
+        res = {m: _summ(c) for m, c in raw.items()}
+        if MM_LAYERS.get(model):
+            num.set(f"mm{model}", "layer", str(MM_LAYERS[model]))
+        caas = [m for m in ("caa1", "caa2") if res[m]]
+        res["caa"] = max((res[m] for m in caas), key=lambda r: r["ti_product"][0]) if caas else None
+        summary[model] = res
+        key = f"mm{model}"
+        for m in ("base", "caa", "dvs", "mast", "lora"):
+            r = res[m]
+            if r:
+                num.set(key, m, r["text"]("ti_product"))
+                num.set(key, m + "info", r["text"]("info"))
+                num.set(key, m + "cells", str(r["ncells"]))
+        b = res["base"]
+        if b:
+            for m in ("caa", "dvs", "mast", "lora"):
+                if res[m]:
+                    num.set(key, m + "gain", f"{res[m]['ti_product'][0] - b['ti_product'][0]:+.1f}")
+            lg = res["lora"]["ti_product"][0] - b["ti_product"][0] if res["lora"] else None
+            for m in ("dvs", "mast"):
+                if not res[m] or lg is None:
+                    continue
+                if lg <= 1:  # fine-tuning itself does not improve this model: the ratio is undefined
+                    num.set(key, m + "recov", "n/a")
+                else:
+                    r_ = 100 * (res[m]["ti_product"][0] - b["ti_product"][0]) / lg
+                    num.set(key, m + "recov", f"{r_:.0f}" if r_ <= 100 else "$>$100")
+        cells = res["mast"]["ncells"] if res["mast"] else 0
+        num.set(key, "cells", str(cells))
+        cols.append((model, label, res))
+    # table: rows = methods, columns = models (T x I, product of rates)
+    lines = [r"\begin{table*}[t]\centering\small\setlength{\tabcolsep}{4pt}",
+             r"\resizebox{\textwidth}{!}{%", r"\begin{tabular}{l" + "c" * len(cols) + "}\\toprule",
+             "& " + " & ".join(f"\\textbf{{{lab}}}" for _, lab, _ in cols) + r" \\",
+             "Layer / cells & " + " & ".join(f"\\res{{mm{m}}}{{layer}} / {r['mast']['ncells'] if r['mast'] else 0}" for m, _, r in cols) + r" \\ \midrule"]
+    for m in ("base", "caa", "dvs", "mast", "lora"):
+        row = []
+        for model, _, res in cols:
+            r = res[m]
+            row.append(r["text"]("ti_product") if r else "\\textcolor{red}{--}")
+        lines.append(f"{names[m]} & " + " & ".join(row) + r" \\")
+    lines.append(r"\midrule")
+    for m, lab in (("dvs", "Direct vector, \\% of LoRA gain"), ("mast", "\\textsc{MAST}, \\% of LoRA gain")):
+        lines.append(f"{lab} & " + " & ".join(f"\\res{{mm{model}}}{{{m}recov}}" for model, _, _ in cols) + r" \\")
+    lines += [r"\bottomrule\end{tabular}}",
+              r"\caption{T$\times$I (\%, product of rates; GPT-4o-mini judges) across five instruction-tuned models under the "
+              r"same protocol (2-fold CV over all 817 questions; mean $\pm$ s.d.\ over seeds when at least two seeds have both folds, "
+              r"otherwise pooled over the available seed$\times$fold cells, listed in the second row). Every model uses the LLaMA "
+              r"hyperparameters unchanged; only the layer is selected, from training loss. "
+              r"$^{\dagger}$Zero-initialised vector parameterised as $\mathbf{v} = \|\mathbf{v}_{\mathrm{CAA}}\|\,\mathbf{u}$ "
+              r"and trained with lr $8{\times}10^{-4}$, a step size that scales with the model's activation norm; because "
+              r"$\|\mathbf{v}_{\mathrm{CAA}}\|$ also varies between splits (\S\ref{sec:scale}), individual cells can be under- or over-stepped. "
+              r"On LLaMA-2 the column shows the bare vector at lr $2{\times}10^{-3}$. Red dashes: not run.}",
+              r"\label{tab:multimodel}\end{table*}"]
+    (paper_dir / "multimodel_table.tex").write_text("\n".join(lines) + "\n")
+    return summary
+
+
+def geometry(num: Numbers):
+    """Reading vs writing, from saved vectors only: CAA (base_vector.pt) vs the supervised direct vector."""
+    import torch
+
+    def load(p):
+        try:
+            return torch.load(p, map_location="cpu").float().flatten()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def cos(a, b):
+        return float(torch.nn.functional.cosine_similarity(a, b, dim=0))
+
+    for model, _ in MM_MODELS:
+        caas, sups, massive, csup, cmast = [], [], [], [], []
+        for s, f in CELLS6:
+            d = _dv_dir(model, s, f)
+            vc, vs = load(d / "vectors/base_vector.pt"), load(d / "vectors/optimized_vector.pt")
+            main = (OUT / f"rcv_main_s{s}" / f"fold{f}") if model == "llama" else _main_dir(model, s, f)
+            if vs is None:  # no direct vector for this cell: fall back to the MLP correction v_MAST - v_CAA
+                vc, vm = load(main / "vectors/v_steered.pt"), load(main / "vectors/v_mlp_mc.pt")
+                if vc is None or vm is None:
+                    continue
+                vs = vm - vc
+            if vc is None:
+                continue
+            top = vc.abs().topk(3).indices
+            massive.append(float((vc[top] ** 2).sum() / (vc ** 2).sum()))
+            mask = torch.ones_like(vc)
+            mask[top] = 0
+            csup.append(cos(vc * mask, vs * mask))
+            caas.append((vc, mask))
+            sups.append(vs)
+            vm = load(main / "vectors/v_mlp_mc.pt")
+            if vm is not None and vm.shape == vc.shape:
+                cmast.append(cos((vm - vc) * mask, vs * mask))
+        if not caas:
+            continue
+        key = f"geo{model}"
+        num.set(key, "massive", f"{100 * np.mean(massive):.0f}")
+        num.set(key, "massiverange", f"{100 * min(massive):.0f}--{100 * max(massive):.0f}")
+        num.set(key, "cossup", f"{np.mean(csup):.2f}")
+        num.set(key, "cossupmax", f"{max(abs(x) for x in csup):.2f}")
+        num.set(key, "n", str(len(caas)))
+        if cmast:
+            num.set(key, "cosmast", f"{np.mean(cmast):.2f}")
+        if len(caas) > 1:
+            pc, ps = [], []
+            for i in range(len(caas)):
+                for j in range(i + 1, len(caas)):
+                    m = caas[i][1] * caas[j][1]
+                    pc.append(cos(caas[i][0] * m, caas[j][0] * m))
+                    ps.append(cos(sups[i] * m, sups[j] * m))
+            num.set(key, "pairsup", f"{np.mean(ps):.2f}")
+            num.set(key, "paircaa", f"{np.mean(pc):.2f}")
+
+
+HEDGE = __import__("re").compile(r"(?i)no comment|i don't know|i do not know|i'm not sure|cannot|can't (say|answer|provide)"
+                                 r"|not possible to|there is no (scientific )?(evidence|consensus)")
+
+
+def _rows(path: Path):
+    if not path.exists():
+        return None
+    d = json.loads(path.read_text())
+    return d["results"] if isinstance(d, dict) and "results" in d else d
+
+
+def _behav(rows):
+    ans = [r.get("generated_clean") or "" for r in rows]
+    good = [r.get("truth_judgment") == "yes" and r.get("info_judgment") == "yes" for r in rows]
+    hedge = [bool(HEDGE.search(a)) for a in ans]
+    nh = [g for g, h in zip(good, hedge) if not h]
+    return {"hedge": 100 * np.mean(hedge), "words": float(np.mean([len(a.split()) for a in ans])),
+            "tinonhedge": 100 * np.mean(nh) if nh else float("nan"),
+            "runon": 100 * np.mean([bool(r.get("was_truncated")) for r in rows]),
+            # answer ended by the few-shot format itself (blank line / next "Q:") before the 64-token limit
+            "blankend": 100 * np.mean([("\n\n" in (r.get("generated_original") or "")) or ("\nQ:" in (r.get("generated_original") or ""))
+                                       for r in rows])}
+
+
+def behaviour(num: Numbers, jf="gpt_judge_results.json"):
+    """Hedging, length and run-on rates (LLaMA, all cells), plus the exploratory rx_* interventions."""
+    llama = {"base": "rcv_main_s{s}/fold{f}/baseline/scale_0.00", "caa": "rcv_main_s{s}/fold{f}/steered/scale_1.00",
+             "mast": "rcv_main_s{s}/fold{f}/mlp_mc/scale_1.00", "dvzero": "rcv_dvzero_lr2e-3_s{s}/fold{f}/mlp_mc/scale_1.00",
+             "lora": "rcv_loradpo_s{s}/fold{f}/mlp_mc/scale_1.00", "mastlrB": "rcv_mast_lr2e-3_s{s}/fold{f}/mlp_mc/scale_1.00",
+             "bipo": "rcv_bipo_lr2e-3_s{s}/fold{f}/mlp_mc/scale_1.00"}
+    for key, pat in llama.items():
+        rows = []
+        for s_, f in CELLS6:
+            r = _rows(OUT / pat.format(s=s_, f=f) / jf)
+            if r:
+                rows += r
+        if rows:
+            b = _behav(rows)
+            for m, v in b.items():
+                num.set(f"bh{key}", m, f"{v:.1f}" if m != "words" else f"{v:.0f}")
+    rx = {"rxNeg": "rx_dvz_neg", "rxNegMast": "rx_mast_neg", "rxCaaAns": "rx_caa_answer", "rxCaaLast": "rx_caa_last",
+          "rxLoraAbl": "rx_lora_abl8_dvz", "rxLoraAblAll": "rx_lora_ablall_dvz", "rxBaseAbl": "rx_base_ablall_dvz",
+          "rxMastAbl": "rx_base_ablall", "rxDistA": "rx_distilled_a1", "rxDistB": "rx_distilled_a2",
+          "rxGotA": "rx_gotdir_a1", "rxGotB": "rx_gotdir_a2", "rxCons": "rx_consensus"}
+    for key, d in rx.items():
+        f = next((OUT / d).glob(f"**/{jf}"), None) if (OUT / d).exists() else None
+        rows = _rows(f) if f else None
+        if not rows:
+            continue
+        r = agg.rates(agg.load_items(f))
+        num.set(key, "tiprod", f"{r['ti_product']:.1f}")
+        num.set(key, "truth", f"{r['truth']:.1f}")
+        num.set(key, "info", f"{r['info']:.1f}")
+        b = _behav(rows)
+        num.set(key, "words", f"{b['words']:.0f}")
+        num.set(key, "hedge", f"{b['hedge']:.1f}")
+    # agreement of the GPT and open (AllenAI) truth labels on the same answers
+    for key, pat in (("agreebase", llama["base"]), ("agreemast", llama["mast"]), ("agreelora", llama["lora"])):
+        same = n = 0
+        for s_, f in CELLS6:
+            g, o = _rows(OUT / pat.format(s=s_, f=f) / jf), _rows(OUT / pat.format(s=s_, f=f) / "open_judge_results.json")
+            if not g or not o:
+                continue
+            om = {r["question"].strip(): r.get("truth_judgment") for r in o}
+            for r in g:
+                q = r["question"].strip()
+                if q in om:
+                    n += 1
+                    same += (r.get("truth_judgment") == om[q])
+        if n:
+            num.set("judge", key, f"{100 * same / n:.1f}")
+    # reference cell for the rx runs (seed 42, fold 1)
+    for key, d in (("refBase", "rcv_main_s42/fold1/baseline/scale_0.00"), ("refMast", "rcv_main_s42/fold1/mlp_mc/scale_1.00"),
+                   ("refDvz", "rcv_dvzero_lr2e-3_s42/fold1/mlp_mc/scale_1.00"), ("refLora", "rcv_loradpo_s42/fold1/mlp_mc/scale_1.00")):
+        rows = _rows(OUT / d / jf)
+        if rows:
+            r = agg.rates(agg.load_items(OUT / d / jf))
+            num.set(key, "tiprod", f"{r['ti_product']:.1f}")
+            num.set(key, "truth", f"{r['truth']:.1f}")
+            num.set(key, "words", f"{_behav(rows)['words']:.0f}")
+
+
+def prompting(num: Numbers, jf="gpt_judge_results.json"):
+    """Zero-training prompting baselines (seed 42, both folds; scripts/fresh_B/gen_prompt_baselines.py)."""
+    def pooled(pat):
+        items = []
+        for f in (1, 2):
+            p = OUT / pat.format(f=f) / jf
+            if not p.exists():
+                return None
+            items += agg.load_items(p)
+        return agg.rates(items)
+    rows = {"promptHelp": "fbB_prompt_help_s42/fold{f}/mlp_mc/scale_1.00",
+            "promptInstr": "fbB_prompt_instr_s42/fold{f}/mlp_mc/scale_1.00",
+            "promptIcl": "fbB_prompt_icl_s42/fold{f}/mlp_mc/scale_1.00",
+            "promptIclDv": "fbB_prompt_icl_dv_s42/fold{f}/mlp_mc/scale_1.00",
+            "sfBase": "rcv_main_s42/fold{f}/baseline/scale_0.00",
+            "sfDvz": "rcv_dvzero_lr2e-3_s42/fold{f}/mlp_mc/scale_1.00",
+            "sfMast": "rcv_main_s42/fold{f}/mlp_mc/scale_1.00",
+            "sfLora": "rcv_loradpo_s42/fold{f}/mlp_mc/scale_1.00"}
+    got = {}
+    for key, pat in rows.items():
+        r = pooled(pat)
+        if r:
+            got[key] = r
+            for m, k in (("tiprod", "ti_product"), ("truth", "truth"), ("info", "info")):
+                num.set(key, m, f"{r[k]:.1f}")
+    if all(k in got for k in ("sfBase", "sfLora", "promptIcl")):
+        b, l = got["sfBase"]["ti_product"], got["sfLora"]["ti_product"]
+        for k in ("promptIcl", "sfDvz", "sfMast"):
+            if k in got:
+                num.set(k, "recov", f"{100 * (got[k]['ti_product'] - b) / (l - b):.0f}")
+
+
+def nocomment(num: Numbers, jf="gpt_judge_results.json"):
+    """Share of 'I have no comment' answers of each unsteered model (abstention check for the shared primer)."""
+    for model, _ in MM_MODELS:
+        rows = []
+        for s_, f in CELLS6:
+            main = (OUT / f"rcv_main_s{s_}" / f"fold{f}") if model == "llama" else _main_dir(model, s_, f)
+            r = _rows(main / "baseline/scale_0.00" / jf)
+            if r:
+                rows += r
+        if rows:
+            nc = np.mean(["no comment" in (r.get("generated_clean") or "").lower() for r in rows])
+            num.set(f"mm{model}", "nocomment", f"{100 * nc:.0f}")
+
+
+def _pool(dirs, jf="gpt_judge_results.json"):
+    items = []
+    for d in dirs:
+        p = OUT / d / jf
+        if not p.exists():
+            return None
+        items += agg.load_items(p)
+    return agg.rates(items) if items else None
+
+
+def late_runs(num: Numbers, paper_dir: Path):
+    """8-9 Oct follow-ups: answer-pooled CAA alpha sweep, dose response, Gemma-4 low-lr MAST, scale stress tests."""
+    sc = "mlp_mc/scale_1.00"
+    for a in (1, 2, 4, 8):
+        r = _pool([str(next((OUT / f"rx_caaans_a{a}_s42f{f}").glob("fold*")).relative_to(OUT)) + f"/{sc}" for f in (1, 2) if (OUT / f"rx_caaans_a{a}_s42f{f}").exists()])
+        if r:
+            num.set(f"caaAns{'ABCD'[(1, 2, 4, 8).index(a)]}", "tiprod", f"{r['ti_product']:.1f}")
+            num.set(f"caaAns{'ABCD'[(1, 2, 4, 8).index(a)]}", "info", f"{r['info']:.1f}")
+    tags = {"-1": "Mone", "-0.5": "Mhalf", "0.5": "Phalf", "1.5": "Pthree"}
+    for model, mk in (("llama", "Llama"), ("g4b", "Gthree"), ("g4e", "Gfour")):
+        for a, t in tags.items():
+            r = _pool([f"rx_alpha_{model}_{a}_s42f1/fold1/{sc}"])
+            if r:
+                for m, k in (("tiprod", "ti_product"), ("truth", "truth"), ("info", "info")):
+                    num.set(f"dose{mk}{t}", m, f"{r[k]:.1f}")
+    for lr, k in (("1e-4", "A"), ("2e-4", "B")):
+        r = _pool([f"rcv_g4e_mast_lr{lr}_s42/fold{f}/{sc}" for f in (1, 2)])
+        if r:
+            num.set(f"gfourMastLow{k}", "tiprod", f"{r['ti_product']:.1f}")
+            num.set(f"gfourMastLow{k}", "info", f"{r['info']:.1f}")
+    for key, d in (("llamaDvScaledfB", "rcv_dvscaled_lr8e-4_s42/fold2"), ("dvcleanfA", "fbB_dvclean_lr6e-3_s42/fold1"),
+                   ("dvcleanfB", "fbB_dvclean_lr6e-3_s42/fold2"), ("gthreeDvcleanfA", "fbB_g4b_dvclean_lr6e-3_s42/fold1"),
+                   ("gthreeDvcleanfB", "fbB_g4b_dvclean_lr6e-3_s42/fold2"), ("trainpoolfA", "fbB_dvzero_trainpool_lr2e-3_s42/fold1"),
+                   ("trainpoolfB", "fbB_dvzero_trainpool_lr2e-3_s42/fold2"), ("dvzfB", "rcv_dvzero_lr2e-3_s42/fold2")):
+        r = _pool([f"{d}/{sc}"])
+        if r:
+            num.set(key, "tiprod", f"{r['ti_product']:.1f}")
+            num.set(key, "info", f"{r['info']:.1f}")
+    nc = [_pool([f"fbB_noiseclean_s{s_}/fold1/{sc}"]) for s_ in (42, 123, 456)]
+    nc = [x["ti_product"] for x in nc if x]
+    if nc:
+        num.set("noiseclean", "tiprod", pm(np.mean(nc), np.std(nc, ddof=1)) if len(nc) > 1 else f"{nc[0]:.1f}")
+    # capability (lm-eval zero-shot), LLaMA seed 42 fold 1
+    conv = (("arc_easy", "acc", "ARC-Easy"), ("arc_challenge", "acc_norm", "ARC-Challenge"), ("hellaswag", "acc_norm", "HellaSwag"))
+    def score(block):
+        out = {lab: 100 * block[t][m] for t, m, lab in conv if t in block}
+        mm = [v["acc"] for k, v in block.items() if k.startswith("mmlu_")]
+        if mm:
+            out["MMLU"] = 100 * float(np.mean(mm))
+        return out
+    caps = {}
+    for key, d in (("mast", "cap_s42f1_mast"), ("dvz", "cap_s42f1_dvzero")):
+        f = OUT / d / "coherence_results.json"
+        if f.exists():
+            j = json.loads(f.read_text())
+            caps[key] = (score(j["baseline"]), score(j["steered"]))
+    f = OUT / "cap_s42f1_lora_plus_mast" / "coherence_results.json"
+    if f.exists() and caps:  # its "baseline" block is the LoRA-DPO model alone
+        j = json.loads(f.read_text())
+        caps["lora"] = (next(iter(caps.values()))[0], score(j["baseline"]))
+    if caps:
+        base = next(iter(caps.values()))[0]
+        for k, (b0, st) in caps.items():
+            for lab, key in (("ARC-Easy", "arce"), ("ARC-Challenge", "arcc"), ("HellaSwag", "hs"), ("MMLU", "mmlu")):
+                num.set(f"cap{k}", key, f"{st[lab] - b0[lab]:+.1f}")
+        lines = [r"\begin{table}[h]\centering\small\setlength{\tabcolsep}{4pt}", r"\resizebox{\columnwidth}{!}{%", r"\begin{tabular}{lcccc}\toprule",
+                 r"\textbf{Benchmark} & \textbf{Unsteered} & \textbf{\textsc{MAST}} & \textbf{Direct vector} & \textbf{LoRA-DPO} \\ \midrule"]
+        for lab in ("ARC-Easy", "ARC-Challenge", "HellaSwag", "MMLU"):
+            cells = [f"{base[lab]:.1f}"]
+            for k in ("mast", "dvz", "lora"):
+                if k in caps:
+                    v = caps[k][1][lab]
+                    cells.append(f"{v:.1f} (${v - caps[k][0][lab]:+.1f}$)")
+                else:
+                    cells.append("--")
+            lines.append(f"{lab} & " + " & ".join(cells) + r" \\")
+        lines += [r"\bottomrule\end{tabular}}",
+                  r"\caption{Zero-shot accuracy (\%, lm-evaluation-harness; ARC-Challenge and HellaSwag length-normalised) "
+                  r"without and with the learned vector at $\alpha{=}1$, and with the LoRA-DPO adapter trained on the same fold (LLaMA-2, seed 42, fold 1).}\label{tab:degradation}\end{table}"]
+        (paper_dir / "capability_table.tex").write_text("\n".join(lines) + "\n")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--paper-dir", type=Path, default=Path("paper/drafts/revision_oct2026/paper"))
@@ -384,6 +842,19 @@ def main():
         crossfold_selection(num, runs)
         lr_outputs(table, runs, args.paper_dir)
         categories(runs, args.paper_dir)
+        best = [m for m in ("mast_lr1e-4", "mast_lr2e-4", "mast_lr3e-4", "mast", "mast_lr1e-3", "mast_lr2e-3")
+                if m in table and table[m].get("n_seeds_full", 0) >= 3]
+        if best:
+            b = max(best, key=lambda m: table[m]["ti_product"]["mean"])
+            num.set("mastbest", "tiprod", pm(table[b]["ti_product"]["mean"], table[b]["ti_product"]["sd"]))
+            num.set("mastbest", "info", pm(table[b]["info"]["mean"], table[b]["info"]["sd"]))
+            num.set("mastbest", "lr", {"mast": "5e-4"}.get(b, b.split("lr")[-1]))
+    multimodel(num, args.paper_dir)
+    geometry(num)
+    behaviour(num)
+    prompting(num)
+    late_runs(num, args.paper_dir)
+    nocomment(num)
     num.write(args.paper_dir / "numbers.tex")
     print(f"wrote {len(num.lines)} macros to {args.paper_dir / 'numbers.tex'}")
 

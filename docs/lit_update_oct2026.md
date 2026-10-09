@@ -84,3 +84,13 @@ True*Info Score: {final[1]*final[0]}
 That is mean(GPT-judge acc) × mean(GPT-info acc).
 
 **Implication.** ITI (and, presumably, work reusing its code, such as RaLFiT; we have not checked RaLFiT's code) reports the product of marginal rates. Lin et al.'s original metrics are per-item. The marginal product is always at least as large as the per-item conjunction whenever truth and info are negatively correlated across items, which is typical (for example, "I have no comment" is true but uninformative). We should state which one we report, and ideally report both.
+
+---
+
+## Verification pass (5 Oct 2026, read from the papers themselves)
+
+- **Dunefsky & Cohan (2502.18862)** — confirmed: "variance in performance depending on training example or hyperparameters"; Adam, lr 0.01–0.5, 30–50 steps, random init on the sphere, norm clipping; no TruthfulQA.
+- **RePS (2505.20809)** — confirmed factor-sampling trick ("steering scores from hyperparameter-tuning runs without sampled factors exhibit significantly greater variance"); grid searches of 72 / 168 runs per model size (the "~1,000 runs" above is not confirmed); no isolated lr-sensitivity analysis for SVs.
+- **PrOSV (2605.05983)** — abstract confirmed: "moderately large initialization sizes and learning rates for steering factors are essential for stability"; listed as ICML 2026.
+- **BiPO (2406.00045)** — single vector at layer 15, AdamW lr 5e-4, batch 4, 1 epoch on TruthfulQA, 327/409 split, MC1/MC2 only, CAA baseline; no lr sweep.
+- **LoFiT (2406.01563)** — confirmed: DPO-trained head offsets on Llama-2-7B *base*, 2-fold CV (326/82/407), MC1 58.1 vs ITI 33.4; "when using fewer heads, a larger learning rate is needed to stabilize training".
