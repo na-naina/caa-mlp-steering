@@ -263,6 +263,8 @@ def block_p3x(g4e_layer: int | None = None):
 # 9 Oct round: "is the recipe plug-and-play?" sensitivity grid, OLMo-3 as a sixth model, SimpleQA Verified.
 # ---------------------------------------------------------------------------
 NEW_MODELS["olmo"] = (PY, "olmo3_7b_bn8_L", "allenai/Olmo-3-7B-Instruct", "o_proj,down_proj")
+# 2026 non-Google/Alibaba model chosen 9 Oct (docs/next_round_plan_oct9.md); dense, runs on .venv (tf 4.57.3)
+NEW_MODELS["granite"] = (PY, "granite4_1_8b_bn8_L", "ibm-granite/granite-4.1-8b", "o_proj,down_proj")
 CHAT_G4E = "TQA_CHAT_TEMPLATE=google/gemma-4-E4B-it " + PY5
 # key: (python, MAST args at the picked layer exactly as in that model's main runs, HF id, picked layer,
 #       runner-up layer by train signal (scripts/pick_layer.py --rank 2), main-run dir prefix)
@@ -273,6 +275,8 @@ PP_MODELS = {
     "g4e": (CHAT_G4E, f"--model gemma4_e4b_bn8_L17 {FULL_BATCH}", "google/gemma-4-E4B-it", 17, 10, "rcv_g4emain"),
     "q35": (PY5, f"--model qwen3_5_9b_bn8_L13 {FULL_BATCH}", "Qwen/Qwen3.5-9B", 13, 11, "rcv_q35main"),
     "olmo": (PY, f"--model olmo3_7b_bn8_L{{L}} {FULL_BATCH}", "allenai/Olmo-3-7B-Instruct", None, None, "rcv_olmomain"),
+    "granite": (PY, f"--model granite4_1_8b_bn8_L{{L}} {FULL_BATCH}", "ibm-granite/granite-4.1-8b", None, None,
+                "rcv_granitemain"),
 }
 PP_CELLS = [(s, f) for s in (42, 123) for f in (1, 2)]
 

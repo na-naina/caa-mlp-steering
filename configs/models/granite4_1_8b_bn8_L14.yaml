@@ -1,0 +1,33 @@
+# IBM Granite-4.1-8B (instruct; released 29 Apr 2026; Apache-2.0, ungated). GraniteForCausalLM:
+# dense decoder, 40 layers, d=4096, GQA 32/8, SwiGLU 12800, 100k vocab, tied embeddings. Granite-specific
+# scalars (embedding_multiplier 12, residual_multiplier 0.22, attention_multiplier 1/128, logits_scaling 16)
+# live inside the modules, so the residual stream between decoder layers is standard and our hooks apply.
+# Runs on the pinned transformers 4.57.3 (.venv). LoRA-DPO analogue of RaLFiT: --target-modules o_proj,down_proj
+# (r=8 -> 8.03M params because of the wider MLP; r=6 gives 6.02M if a parameter-matched variant is wanted).
+# Chosen 9 Oct as the 2026 non-Google/Alibaba model (docs/next_round_plan_oct9.md).
+# Paper recipe (bn=8, no bank, lr 5e-4). Layer-sweep candidate L14/40 (35% depth);
+# pick the layer by final train loss / margin acc only (train-signal protocol).
+model:
+  name: ibm-granite/granite-4.1-8b
+  layer: 14
+  family: granite
+  dtype: bfloat16
+
+mlp:
+  architecture:
+    bottleneck_dim: 8
+  mc_training:
+    gradient_checkpointing: true
+    lr: 5.0e-4
+    batch_size: 1
+    gradient_accumulation_steps: 8
+    steps_per_epoch: 400
+  gen_training:
+    lr: 5.0e-4
+    batch_size: 1
+    gradient_accumulation_steps: 8
+
+steering:
+  vector_bank:
+    num_vectors: 0
+  enabled_variants: [baseline, steered, mlp_mc]
